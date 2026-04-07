@@ -1113,6 +1113,7 @@ function startImageFill(imageType) {
 
   for (const node of fillableNodes) {
     const imageUrl = getImageUrl(imageType, node.width, node.height);
+    console.log(`[Avatar] fetch-image → nodeId=${node.id}, name="${node.name}", url=${imageUrl}`);
     figma.ui.postMessage({
       type: 'fetch-image',
       url: imageUrl,
@@ -1159,17 +1160,23 @@ function applyImageData(nodeId, data) {
       }
     }
   } catch (e) {
-    console.error('applyImageData error:', e.message);
+    console.error('[Avatar] applyImageData error:', e.message);
+  }
+
+  if (!data || data.length === 0) {
+    console.error(`[Avatar] image-fetch-result: data null for nodeId=${nodeId} — fetch failed (CORS or network issue?)`);
   }
 
   pendingImageCount--;
   if (pendingImageCount <= 0) {
+    const success = appliedImageCount > 0;
+    console.log(`[Avatar] done: applied=${appliedImageCount}, pending=${pendingImageCount}`);
     figma.ui.postMessage({
       type: 'data-fill-status',
-      status: appliedImageCount > 0 ? 'success' : 'error',
-      message: appliedImageCount > 0
+      status: success ? 'success' : 'error',
+      message: success
         ? `${appliedImageCount}개의 레이어에 이미지를 적용했습니다.`
-        : '이미지 적용에 실패했습니다.'
+        : '이미지 fetch 실패 — Figma 콘솔에서 [Avatar] 로그를 확인해주세요.'
     });
     pendingImageCount = 0;
     appliedImageCount = 0;
@@ -1258,16 +1265,16 @@ function findFillableNodes(selection) {
 
 // 프로필 이미지 URL 목록 (커스텀 이미지)
 const PROFILE_IMAGES = [
-  'https://randomuser.me/api/portraits/women/1.jpg',
-  'https://randomuser.me/api/portraits/men/5.jpg',
-  'https://randomuser.me/api/portraits/women/9.jpg',
-  'https://randomuser.me/api/portraits/men/16.jpg',
-  'https://randomuser.me/api/portraits/women/20.jpg',
-  'https://randomuser.me/api/portraits/men/25.jpg',
-  'https://randomuser.me/api/portraits/women/32.jpg',
-  'https://randomuser.me/api/portraits/men/36.jpg',
-  'https://randomuser.me/api/portraits/women/41.jpg',
-  'https://randomuser.me/api/portraits/men/47.jpg'
+  'https://picsum.photos/seed/avatar01/200/200',
+  'https://picsum.photos/seed/avatar02/200/200',
+  'https://picsum.photos/seed/avatar03/200/200',
+  'https://picsum.photos/seed/avatar04/200/200',
+  'https://picsum.photos/seed/avatar05/200/200',
+  'https://picsum.photos/seed/avatar06/200/200',
+  'https://picsum.photos/seed/avatar07/200/200',
+  'https://picsum.photos/seed/avatar08/200/200',
+  'https://picsum.photos/seed/avatar09/200/200',
+  'https://picsum.photos/seed/avatar10/200/200'
 ];
 
 // 이미지 타입에 따른 URL 생성

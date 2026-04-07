@@ -1445,9 +1445,14 @@
 
       // code.js에서 이미지 fetch 요청 → UI 스레드에서 처리 후 데이터 반환
       if (msg.type === 'fetch-image') {
+        console.log('[Avatar] UI fetching:', msg.url);
         fetch(msg.url)
-          .then(r => r.arrayBuffer())
+          .then(r => {
+            if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
+            return r.arrayBuffer();
+          })
           .then(buffer => {
+            console.log('[Avatar] fetch OK, bytes:', buffer.byteLength, 'nodeId:', msg.nodeId);
             parent.postMessage({
               pluginMessage: {
                 type: 'image-fetch-result',
@@ -1457,7 +1462,8 @@
             }, '*');
           })
           .catch(e => {
-            console.error('Image fetch error:', e);
+            console.error('[Avatar] fetch FAILED:', msg.url, '|', e.message || e);
+            showSnackbar('이미지 로드 실패: ' + (e.message || 'network error'), 'error');
             parent.postMessage({
               pluginMessage: { type: 'image-fetch-result', nodeId: msg.nodeId, data: null }
             }, '*');
