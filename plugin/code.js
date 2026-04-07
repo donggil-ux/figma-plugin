@@ -130,9 +130,14 @@ figma.ui.onmessage = async (msg) => {
     randomFillData(msg.category, msg.data);
   }
 
-  // 이미지 채우기
+  // 이미지 채우기 (UI 스레드에서 fetch 후 데이터 전달)
   if (msg.type === 'apply-image-fill') {
-    applyImageFill(msg.imageType);
+    startImageFill(msg.imageType);
+  }
+
+  // UI에서 이미지 데이터 수신 후 적용
+  if (msg.type === 'image-fetch-result') {
+    applyImageData(msg.nodeId, msg.data);
   }
 
   // 일치하는 레이어 개수 세기
@@ -1066,8 +1071,11 @@ async function fillMatchingLayersSequential(node, fieldMap) {
   return { changed, matched };
 }
 
-// 이미지 채우기 기능
-async function applyImageFill(imageType) {
+// 이미지 채우기 - UI 스레드에 fetch 요청
+let pendingImageCount = 0;
+let appliedImageCount = 0;
+
+function startImageFill(imageType) {
   const selection = figma.currentPage.selection;
 
   if (selection.length === 0) {
@@ -1079,7 +1087,6 @@ async function applyImageFill(imageType) {
     return;
   }
 
-  // 이미지 Fill을 적용할 수 있는 노드들 찾기
   const fillableNodes = findFillableNodes(selection);
 
   if (fillableNodes.length === 0) {
@@ -1091,103 +1098,72 @@ async function applyImageFill(imageType) {
     return;
   }
 
-  let changed = 0;
+  pendingImageCount = fillableNodes.length;
+  appliedImageCount = 0;
 
   for (const node of fillableNodes) {
-    try {
-      console.log(`Processing node: ${node.name} (${node.type})`);
-      const imageUrl = getImageUrl(imageType, node.width, node.height);
-      console.log(`Fetching image from: ${imageUrl}`);
-      const imageData = await fetchImageData(imageUrl);
+    const imageUrl = getImageUrl(imageType, node.width, node.height);
+    figma.ui.postMessage({
+      type: 'fetch-image',
+      url: imageUrl,
+      nodeId: node.id
+    });
+  }
+}
 
-      if (imageData) {
-        console.log(`Image data received, size: ${imageData.length}`);
-        const image = figma.createImage(imageData);
-        console.log(`Image created with hash: ${image.hash}`);
+// UI 스레드에서 받은 이미지 데이터를 노드에 적용
+function applyImageData(nodeId, data) {
+  try {
+    if (data && data.length > 0) {
+      const node = figma.getNodeById(nodeId);
+      if (node && 'fills' in node) {
+        const image = figma.createImage(new Uint8Array(data));
+        const currentFills = node.fills;
+        let newFills;
 
-        // 기존 fills 복사하여 이미지만 교체
-        try {
-          // fills 읽기 가능한지 체크
-          const currentFills = node.fills;
-          console.log(`Current fills type: ${typeof currentFills}, isArray: ${Array.isArray(currentFills)}`);
-
-          if (currentFills === figma.mixed) {
-            console.log('Fills is mixed, skipping...');
-            continue;
-          }
-
-          const fillsCopy = JSON.parse(JSON.stringify(currentFills || []));
-          let newFills = [];
-
-          // 기존에 이미지 Fill이 있으면 그것만 교체
+        if (currentFills === figma.mixed || !Array.isArray(currentFills) || currentFills.length === 0) {
+          newFills = [{ type: 'IMAGE', imageHash: image.hash, scaleMode: 'FILL' }];
+        } else {
+          const fillsCopy = JSON.parse(JSON.stringify(currentFills));
           let hasExistingImage = false;
-          for (const fill of fillsCopy) {
+          newFills = fillsCopy.map(fill => {
             if (fill.type === 'IMAGE') {
               hasExistingImage = true;
-              newFills.push({
+              return {
                 type: 'IMAGE',
                 imageHash: image.hash,
                 scaleMode: fill.scaleMode || 'FILL',
                 visible: fill.visible !== false,
                 opacity: fill.opacity !== undefined ? fill.opacity : 1
-              });
-            } else {
-              newFills.push(fill);
+              };
             }
-          }
-
-          // 기존 이미지가 없으면 새로 추가
+            return fill;
+          });
           if (!hasExistingImage) {
-            newFills = [{
-              type: 'IMAGE',
-              imageHash: image.hash,
-              scaleMode: 'FILL'
-            }];
-          }
-
-          console.log(`Setting new fills:`, JSON.stringify(newFills));
-          node.fills = newFills;
-          console.log(`Successfully applied to: ${node.name}`);
-          changed++;
-        } catch (fillError) {
-          console.error('Cannot override fills:', fillError.message, node.name, node.type);
-
-          // 대안: 직접 fills 배열 생성 시도
-          try {
-            console.log('Trying alternative method...');
-            node.fills = [{
-              type: 'IMAGE',
-              imageHash: image.hash,
-              scaleMode: 'FILL'
-            }];
-            console.log('Alternative method succeeded!');
-            changed++;
-          } catch (altError) {
-            console.error('Alternative method also failed:', altError.message);
+            newFills = [{ type: 'IMAGE', imageHash: image.hash, scaleMode: 'FILL' }];
           }
         }
-      } else {
-        console.log('Failed to fetch image data');
+
+        node.fills = newFills;
+        appliedImageCount++;
       }
-    } catch (e) {
-      console.error('Image fill error:', e.message);
     }
+  } catch (e) {
+    console.error('applyImageData error:', e.message);
   }
 
-  if (changed === 0) {
+  pendingImageCount--;
+  if (pendingImageCount <= 0) {
     figma.ui.postMessage({
       type: 'data-fill-status',
-      status: 'error',
-      message: '이미지를 적용하는데 실패했습니다.'
+      status: appliedImageCount > 0 ? 'success' : 'error',
+      message: appliedImageCount > 0
+        ? `${appliedImageCount}개의 레이어에 이미지를 적용했습니다.`
+        : '이미지 적용에 실패했습니다.'
     });
-    return;
+    pendingImageCount = 0;
+    appliedImageCount = 0;
   }
-
-  figma.ui.postMessage({
-    type: 'data-fill-status',
-    status: 'success',
-    message: `${changed}개의 레이어에 이미지를 적용했습니다.`
-  });
 }
 
 // 이미지 Fill을 적용할 수 있는 노드 찾기
