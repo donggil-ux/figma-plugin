@@ -902,7 +902,7 @@
     /* Code2Design 탭 스타일 */
     .code-input-section { margin-bottom: 16px; }
     .code-textarea {
-      width: 100%; height: 200px; padding: 12px;
+      width: 100%; height: 320px; padding: 12px;
       border: 1px solid #D7D8E5; border-radius: 12px;
       font-size: 12px; font-family: 'SF Mono', Monaco, 'Courier New', monospace;
       resize: none; background: #1E1E1E; color: #D4D4D4; line-height: 1.5;
@@ -1659,22 +1659,31 @@
       console.log('initializeData 시작');
       const sheetsData = await loadGoogleSheetsData();
 
+      const AVATAR_FIELD = { name: 'Avatar', desc: '프로필 이미지', values: [], isImage: true, imageType: 'profile' };
+
+      function mergeAvatarField(fields) {
+        const mapped = fields.map(f => f.name === 'Avatar' ? { ...f, isImage: true, imageType: 'profile' } : f);
+        // Avatar가 시트에 없으면 Handle 다음 위치에 주입
+        if (!mapped.some(f => f.name === 'Avatar')) {
+          const handleIdx = mapped.findIndex(f => f.name === 'Handle');
+          const insertAt = handleIdx >= 0 ? handleIdx + 1 : Math.min(2, mapped.length);
+          mapped.splice(insertAt, 0, { ...AVATAR_FIELD });
+        }
+        return mapped;
+      }
+
       // 크리에이터 데이터 업데이트
       if (sheetsData && sheetsData.creator && sheetsData.creator.length > 0) {
-        dummyData.creator = sheetsData.creator.map(field =>
-          field.name === 'Avatar' ? { ...field, isImage: true, imageType: 'profile' } : field
-        );
-        console.log('크리에이터 데이터 업데이트 완료, 개수:', dummyData.creator[0].values.length);
+        dummyData.creator = mergeAvatarField(sheetsData.creator);
+        console.log('크리에이터 데이터 업데이트 완료, Avatar 포함:', dummyData.creator.some(f => f.isImage));
       } else {
         console.log('크리에이터 시트 로드 실패, 기본 데이터 사용');
       }
 
       // 팬 데이터 업데이트
       if (sheetsData && sheetsData.fan && sheetsData.fan.length > 0) {
-        dummyData.fan = sheetsData.fan.map(field =>
-          field.name === 'Avatar' ? { ...field, isImage: true, imageType: 'profile' } : field
-        );
-        console.log('팬 데이터 업데이트 완료, 개수:', dummyData.fan[0].values.length);
+        dummyData.fan = mergeAvatarField(sheetsData.fan);
+        console.log('팬 데이터 업데이트 완료, Avatar 포함:', dummyData.fan.some(f => f.isImage));
       } else {
         console.log('팬 시트 로드 실패, 기본 데이터 사용');
       }
