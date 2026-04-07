@@ -914,9 +914,58 @@
     .code-preview-title { font-size: 11px; font-weight: 600; color: #838499; margin-bottom: 6px; }
     .code-preview-info { font-size: 12px; color: #110F1A; }
 
+    /* ===== Snackbar ===== */
+    #snackbar {
+      position: fixed;
+      top: -70px;
+      left: 12px;
+      right: 12px;
+      z-index: 10000;
+      background: #110F1A;
+      color: #fff;
+      padding: 12px 16px;
+      border-radius: 12px;
+      font-size: 13px;
+      font-weight: 500;
+      display: flex;
+      align-items: center;
+      gap: 8px;
+      transition: top 0.3s cubic-bezier(0.34, 1.56, 0.64, 1);
+      box-shadow: 0 4px 20px rgba(0,0,0,0.25);
+      pointer-events: none;
+    }
+    #snackbar.show { top: 8px; }
+    #snackbar.success { background: #059669; }
+    #snackbar.error { background: #DC2626; }
+    #snackbar.info { background: #2563EB; }
+    #snackbar .snackbar-icon { font-size: 15px; flex-shrink: 0; }
+
+    /* ===== Button loading state ===== */
+    .btn .btn-text { display: flex; align-items: center; gap: 6px; }
+    .btn .btn-loading { display: none; align-items: center; gap: 8px; }
+    .btn.loading .btn-text { display: none; }
+    .btn.loading .btn-loading { display: flex; }
+    .btn.loading { pointer-events: none; opacity: 0.75; }
+    .btn-spinner {
+      width: 15px;
+      height: 15px;
+      border: 2px solid rgba(255,255,255,0.35);
+      border-top-color: #fff;
+      border-radius: 50%;
+      animation: spin 0.7s linear infinite;
+      flex-shrink: 0;
+    }
+    .btn-secondary .btn-spinner {
+      border-color: rgba(17,15,26,0.2);
+      border-top-color: #110F1A;
+    }
+
   </style>
 </head>
 <body>
+  <!-- 스낵바 -->
+  <div id="snackbar"><span class="snackbar-icon"></span><span id="snackbarMsg"></span></div>
+
   <!-- 리사이즈 핸들 -->
   <div class="resize-handle" id="resizeHandle"></div>
 
@@ -1034,8 +1083,8 @@
         </div>
 
         <div class="button-group">
-          <button class="btn btn-primary" id="selectedChangeBtn">선택 레이어 변경</button>
-          <button class="btn btn-secondary" id="autoRenameBtn">자동 네이밍</button>
+          <button class="btn btn-primary" id="selectedChangeBtn"><span class="btn-text">선택 레이어 변경</span><span class="btn-loading"><span class="btn-spinner"></span>변경 중...</span></button>
+          <button class="btn btn-secondary" id="autoRenameBtn"><span class="btn-text">자동 네이밍</span><span class="btn-loading"><span class="btn-spinner"></span>처리 중...</span></button>
         </div>
       </div>
 
@@ -1053,7 +1102,7 @@
           <textarea id="directText" placeholder="선택한 레이어의 텍스트를 이 내용으로 변경합니다"></textarea>
         </div>
         <div class="button-group">
-          <button class="btn btn-primary" id="directChangeBtn">선택 레이어 텍스트 변경</button>
+          <button class="btn btn-primary" id="directChangeBtn"><span class="btn-text">선택 레이어 텍스트 변경</span><span class="btn-loading"><span class="btn-spinner"></span>변경 중...</span></button>
         </div>
       </div>
 
@@ -1065,8 +1114,8 @@
         </div>
 
         <div class="button-group horizontal">
-          <button class="btn btn-secondary" id="spellCheckBtn">맞춤법 검사</button>
-          <button class="btn btn-primary" id="executeBtn">텍스트 변경</button>
+          <button class="btn btn-secondary" id="spellCheckBtn"><span class="btn-text">맞춤법 검사</span><span class="btn-loading"><span class="btn-spinner"></span>검사 중...</span></button>
+          <button class="btn btn-primary" id="executeBtn"><span class="btn-text">텍스트 변경</span><span class="btn-loading"><span class="btn-spinner"></span>변경 중...</span></button>
         </div>
 
         <div class="examples-section">
@@ -1100,8 +1149,8 @@
         </div>
 
         <div class="button-group" style="margin-top: 16px;">
-          <button class="btn btn-primary" id="applyDataBtn">선택 레이어에 적용</button>
-          <button class="btn btn-secondary" id="randomFillBtn">랜덤 채우기</button>
+          <button class="btn btn-primary" id="applyDataBtn"><span class="btn-text">선택 레이어에 적용</span><span class="btn-loading"><span class="btn-spinner"></span>적용 중...</span></button>
+          <button class="btn btn-secondary" id="randomFillBtn"><span class="btn-text">랜덤 채우기</span><span class="btn-loading"><span class="btn-spinner"></span>채우기 중...</span></button>
         </div>
       </div>
 
@@ -1151,8 +1200,8 @@
         </div>
 
         <div class="button-group" style="margin-top: 16px;">
-          <button class="btn btn-primary" id="scanDesignBtn">🔍 선택 레이어 스캔</button>
-          <button class="btn btn-secondary" id="selectAllErrorsBtn">⚠️ 미적용 레이어 모두 선택</button>
+          <button class="btn btn-primary" id="scanDesignBtn"><span class="btn-text">🔍 선택 레이어 스캔</span><span class="btn-loading"><span class="btn-spinner"></span>스캔 중...</span></button>
+          <button class="btn btn-secondary" id="selectAllErrorsBtn"><span class="btn-text">⚠️ 미적용 레이어 모두 선택</span><span class="btn-loading"><span class="btn-spinner"></span>선택 중...</span></button>
         </div>
       </div>
 
@@ -1163,6 +1212,40 @@
   </div><!-- content-wrapper 닫기 -->
 
   <script>
+    // ===== Snackbar & Button loading utilities =====
+    let snackbarTimer = null;
+    function showSnackbar(message, type) {
+      const el = document.getElementById('snackbar');
+      const icon = el.querySelector('.snackbar-icon');
+      const msg = document.getElementById('snackbarMsg');
+      const icons = { success: '✅', error: '❌', info: 'ℹ️' };
+      el.className = 'show ' + (type || 'info');
+      icon.textContent = icons[type] || 'ℹ️';
+      msg.textContent = message;
+      clearTimeout(snackbarTimer);
+      snackbarTimer = setTimeout(() => { el.className = type || 'info'; }, 3000);
+    }
+
+    function setButtonLoading(btnId, loading) {
+      const btn = document.getElementById(btnId);
+      if (!btn) return;
+      if (loading) btn.classList.add('loading');
+      else btn.classList.remove('loading');
+    }
+
+    // 로딩 중인 버튼 추적 (메시지 타입 → 버튼 ID)
+    const loadingBtnMap = {};
+
+    function startLoading(btnId, statusKey) {
+      loadingBtnMap[statusKey] = btnId;
+      setButtonLoading(btnId, true);
+    }
+
+    function stopLoading(statusKey) {
+      const btnId = loadingBtnMap[statusKey];
+      if (btnId) { setButtonLoading(btnId, false); delete loadingBtnMap[statusKey]; }
+    }
+
     // ===== 탭 드래그 스크롤 =====
     const tabsScroller = document.getElementById('tabsScroller');
     let isTabDragging = false;
@@ -1225,14 +1308,14 @@
     }
 
     document.getElementById('selectedChangeBtn').onclick = () => {
-      showRenameStatus('처리 중...', 'info');
+      startLoading('selectedChangeBtn', 'rename-status');
       parent.postMessage({
         pluginMessage: { type: 'rename-selected', namingType: selectedNaming }
       }, '*');
     };
 
     document.getElementById('autoRenameBtn').onclick = () => {
-      showRenameStatus('자동 네이밍 중...', 'info');
+      startLoading('autoRenameBtn', 'rename-status');
       parent.postMessage({ pluginMessage: { type: 'auto-rename' } }, '*');
     };
 
@@ -1251,10 +1334,10 @@
     document.getElementById('directChangeBtn').onclick = () => {
       const newText = directTextInput.value;
       if (!newText) {
-        showBridgeStatus('변경할 텍스트를 입력해주세요', 'error');
+        showSnackbar('변경할 텍스트를 입력해주세요', 'error');
         return;
       }
-      showBridgeStatus('텍스트 변경 중...', 'info');
+      startLoading('directChangeBtn', 'bridge-status');
       parent.postMessage({
         pluginMessage: { type: 'direct-text-change', text: newText }
       }, '*');
@@ -1263,15 +1346,15 @@
     document.getElementById('executeBtn').onclick = () => {
       const command = commandInput.value.trim();
       if (!command) {
-        showBridgeStatus('명령어를 입력해주세요', 'error');
+        showSnackbar('명령어를 입력해주세요', 'error');
         return;
       }
-      showBridgeStatus('처리 중...', 'info');
+      startLoading('executeBtn', 'bridge-status');
       parent.postMessage({ pluginMessage: { type: 'execute-command', command } }, '*');
     };
 
     document.getElementById('spellCheckBtn').onclick = () => {
-      showBridgeStatus('맞춤법 검사 중...', 'info');
+      startLoading('spellCheckBtn', 'spell-results');
       spellResults.className = 'spell-results';
       spellResults.innerHTML = '';
       parent.postMessage({ pluginMessage: { type: 'spell-check' } }, '*');
@@ -1289,9 +1372,27 @@
       const msg = event.data.pluginMessage;
       if (!msg) return;
 
-      if (msg.type === 'status') showBridgeStatus(msg.message, msg.status);
-      if (msg.type === 'rename-status') showRenameStatus(msg.message, msg.status);
-      if (msg.type === 'data-fill-status') showDataFillStatus(msg.message, msg.status);
+      if (msg.type === 'status') {
+        showBridgeStatus(msg.message, msg.status);
+        if (msg.status === 'success' || msg.status === 'error') {
+          stopLoading('bridge-status');
+          showSnackbar(msg.message, msg.status);
+        }
+      }
+      if (msg.type === 'rename-status') {
+        showRenameStatus(msg.message, msg.status);
+        if (msg.status === 'success' || msg.status === 'error') {
+          stopLoading('rename-status');
+          showSnackbar(msg.message, msg.status);
+        }
+      }
+      if (msg.type === 'data-fill-status') {
+        showDataFillStatus(msg.message, msg.status);
+        if (msg.status === 'success' || msg.status === 'error') {
+          stopLoading('data-fill-status');
+          showSnackbar(msg.message, msg.status);
+        }
+      }
 
       // Figma 선택 변경 시 미리보기 업데이트
       if (msg.type === 'selection-update') {
@@ -1301,12 +1402,15 @@
       }
 
       if (msg.type === 'spell-results') {
+        stopLoading('spell-results');
         bridgeStatus.className = 'status';
         spellResults.className = 'spell-results show';
 
         if (msg.errors.length === 0) {
+          showSnackbar('맞춤법 오류가 없습니다!', 'success');
           spellResults.innerHTML = '<div class="spell-ok">맞춤법 오류가 없습니다!</div>';
         } else {
+          showSnackbar(`맞춤법 오류 ${msg.errors.length}개 발견`, 'error');
           spellResults.innerHTML = msg.errors.map((err, idx) => `
             <div class="spell-item">
               <div><span class="original">${err.original}</span> → <span class="correct">${err.correct}</span></div>
@@ -1335,6 +1439,7 @@
         if (msg.status === 'success' || msg.status === 'error') {
           const btn = document.getElementById('generateDesignBtn');
           if (btn) btn.classList.remove('loading');
+          showSnackbar(msg.message, msg.status);
         }
       }
 
@@ -1360,11 +1465,21 @@
       }
 
       // Checker 관련 메시지
-      if (msg.type === 'checker-status') showCheckerStatus(msg.message, msg.status);
+      if (msg.type === 'checker-status') {
+        showCheckerStatus(msg.message, msg.status);
+        if (msg.status === 'error') {
+          stopLoading('checker-results');
+          showSnackbar(msg.message, 'error');
+        }
+      }
       if (msg.type === 'checker-results') {
+        stopLoading('checker-results');
         checkerResults[msg.checkerType] = msg.results;
         renderCheckerResults();
-        showCheckerStatus(`스캔 완료: ${msg.results.filter(r => !r.isApplied).length}개 미적용 발견`, 'success');
+        const errorCount = msg.results.filter(r => !r.isApplied).length;
+        const statusMsg = `스캔 완료: ${errorCount}개 미적용 발견`;
+        showCheckerStatus(statusMsg, errorCount > 0 ? 'error' : 'success');
+        showSnackbar(statusMsg, errorCount > 0 ? 'error' : 'success');
       }
 
       // Compare 관련 메시지
@@ -1664,21 +1779,19 @@
 
     document.getElementById('applyDataBtn').onclick = () => {
       if (!selectedField) {
-        showDataFillStatus('필드를 선택해주세요', 'error');
+        showSnackbar('필드를 선택해주세요', 'error');
         return;
       }
       const field = dummyData[currentCategory].find(f => f.name === selectedField);
       if (field) {
-        // 이미지 타입인 경우
         if (field.isImage) {
-          showDataFillStatus('이미지 로딩 중...', 'info');
+          startLoading('applyDataBtn', 'data-fill-status');
           parent.postMessage({
             pluginMessage: { type: 'apply-image-fill', imageType: field.imageType }
           }, '*');
         } else {
-          // 텍스트 타입인 경우
           const randomValue = field.values[Math.floor(Math.random() * field.values.length)];
-          showDataFillStatus('적용 중...', 'info');
+          startLoading('applyDataBtn', 'data-fill-status');
           parent.postMessage({
             pluginMessage: { type: 'apply-dummy-data', value: randomValue }
           }, '*');
@@ -1687,7 +1800,7 @@
     };
 
     document.getElementById('randomFillBtn').onclick = () => {
-      showDataFillStatus('랜덤 채우기 중...', 'info');
+      startLoading('randomFillBtn', 'data-fill-status');
       parent.postMessage({
         pluginMessage: { type: 'random-fill', category: currentCategory, data: dummyData[currentCategory] }
       }, '*');
@@ -1928,7 +2041,7 @@
 
     // 스캔 버튼
     document.getElementById('scanDesignBtn').onclick = () => {
-      showCheckerStatus('스캔 중...', 'info');
+      startLoading('scanDesignBtn', 'checker-results');
       checkerResultsEl.innerHTML = `
         <div class="checker-loading">
           <div class="checker-spinner"></div>
@@ -1944,13 +2057,18 @@
     document.getElementById('selectAllErrorsBtn').onclick = () => {
       const errorItems = checkerResults[currentCheckerType]?.filter(r => !r.isApplied) || [];
       if (errorItems.length === 0) {
-        showCheckerStatus('미적용 레이어가 없습니다', 'info');
+        showSnackbar('미적용 레이어가 없습니다', 'info');
         return;
       }
+      startLoading('selectAllErrorsBtn', 'select-errors');
       const nodeIds = errorItems.map(item => item.nodeId);
       parent.postMessage({
         pluginMessage: { type: 'select-multiple-nodes', nodeIds: nodeIds }
       }, '*');
+      setTimeout(() => {
+        stopLoading('select-errors');
+        showSnackbar(`${errorItems.length}개 레이어 선택됨`, 'success');
+      }, 400);
     };
 
     // ===== 리사이즈 기능 =====
