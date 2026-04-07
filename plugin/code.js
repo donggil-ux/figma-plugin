@@ -1203,6 +1203,7 @@ function findFillableNodes(selection) {
     // 레이어 이름에 avatar, profile, image 등이 포함된 경우 우선 체크
     const nameLower = node.name.toLowerCase();
     const isLikelyImageLayer = nameLower.includes('avatar') ||
+                               nameLower.includes('avatar image') ||
                                nameLower.includes('profile') ||
                                nameLower.includes('image') ||
                                nameLower.includes('photo') ||

@@ -1555,7 +1555,7 @@
           '@maruemong', '@som2', '@soi_official', '@sumin_mouse', '@hayang_ha',
           '@yang2', '@miko_heart', '@kkongju', '@mana_official', '@judy_pig', '@moeilin'
         ] },
-        { name: 'Avatar', desc: '프로필 이미지', values: [], isImage: true, imageType: 'profile' },
+        { name: 'Avatar Image', desc: '프로필 이미지', values: [], isImage: true, imageType: 'profile' },
         { name: 'FollowersText', desc: '팔로워 수', values: [
           '17.8K', '6.8K', '6.8K', '104.6K', '7.8K', '15.2K', '23.1K', '8.9K', '12.4K', '5.6K',
           '45.3K', '18.7K', '9.2K', '11.5K', '7.3K', '4.8K', '22.1K', '6.1K', '8.4K', '13.9K', '257K'
@@ -1588,7 +1588,7 @@
           '@tanaka_yuki', '@shooting_star', '@lucky_clover', '@moonlight_fairy', '@wang_xiaoli', '@lovely_one',
           '@dreamland', '@happy_virus', '@suzuki_hana', '@starlight_garden', '@sweet_memory', '@infinite_challenge', '@heart_bbyong'
         ] },
-        { name: 'Avatar', desc: '프로필 이미지', values: [], isImage: true, imageType: 'profile' },
+        { name: 'Avatar Image', desc: '프로필 이미지', values: [], isImage: true, imageType: 'profile' },
         { name: 'Comment', desc: '댓글', values: [
           '생축🎉', '언니 생일 축하해🎂', 'お誕生日おめでとうございます🎉', '다리 진짜 예뻐요😍', '최고의 팬이에요💕',
           '応援してます！', '멤버십 가입했어요!', '오늘도 예쁘네요✨', '항상 응원합니다💪', '사랑해요❤️',
@@ -1673,13 +1673,18 @@
       console.log('initializeData 시작');
       const sheetsData = await loadGoogleSheetsData();
 
-      const AVATAR_FIELD = { name: 'Avatar', desc: '프로필 이미지', values: [], isImage: true, imageType: 'profile' };
+      const AVATAR_FIELD = { name: 'Avatar Image', desc: '프로필 이미지', values: [], isImage: true, imageType: 'profile' };
+
+      function isAvatarField(name) {
+        const n = (name || '').toLowerCase().replace(/\s/g, '');
+        return n === 'avatar' || n === 'avatarimage';
+      }
 
       function mergeAvatarField(fields) {
-        const mapped = fields.map(f => f.name === 'Avatar' ? { ...f, isImage: true, imageType: 'profile' } : f);
-        // Avatar가 시트에 없으면 Handle 다음 위치에 주입
-        if (!mapped.some(f => f.name === 'Avatar')) {
-          const handleIdx = mapped.findIndex(f => f.name === 'Handle');
+        const mapped = fields.map(f => isAvatarField(f.name) ? { ...f, isImage: true, imageType: 'profile' } : f);
+        // Avatar 계열 필드가 시트에 없으면 Handle 다음 위치에 주입
+        if (!mapped.some(f => f.isImage)) {
+          const handleIdx = mapped.findIndex(f => (f.name || '').toLowerCase() === 'handle');
           const insertAt = handleIdx >= 0 ? handleIdx + 1 : Math.min(2, mapped.length);
           mapped.splice(insertAt, 0, { ...AVATAR_FIELD });
         }
