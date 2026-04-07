@@ -164,6 +164,16 @@ figma.ui.onmessage = async (msg) => {
   if (msg.type === 'compare-with-notion') {
     compareWithNotion(msg.notionText);
   }
+
+  // Code2Design: Tailwind/JSON → Figma
+  if (msg.type === 'generate-from-tailwind') {
+    createDesignFromGeminiResponse(msg.geminiResult);
+  }
+
+  // Code2Design: 브라우저 렌더 → Figma
+  if (msg.type === 'generate-from-browser-render') {
+    createDesignFromBrowserRender(msg.designTree);
+  }
 };
 
 // 선택된 레이어 정보 가져오기
@@ -1838,4 +1848,183 @@ function checkTextStyles(selection) {
   }
 
   return results;
+}
+
+// ===== Code2Design =====
+
+function hexToFigmaRgb(hex) {
+  if (!hex) return null;
+  hex = hex.replace('#', '');
+  if (hex.length === 3) hex = hex[0]+hex[0]+hex[1]+hex[1]+hex[2]+hex[2];
+  let alpha = 1;
+  if (hex.length === 8) { alpha = parseInt(hex.slice(6,8),16)/255; hex = hex.slice(0,6); }
+  if (hex.length !== 6) return null;
+  return { r: parseInt(hex.slice(0,2),16)/255, g: parseInt(hex.slice(2,4),16)/255, b: parseInt(hex.slice(4,6),16)/255, a: alpha };
+}
+
+function parseRgbString(str) {
+  const m = str.match(/rgba?\s*\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)\s*(?:,\s*([\d.]+))?\s*\)/);
+  if (!m) return null;
+  return { r: parseInt(m[1])/255, g: parseInt(m[2])/255, b: parseInt(m[3])/255, a: m[4] ? parseFloat(m[4]) : 1 };
+}
+
+function mapJustify(val) {
+  return ({'flex-start':'MIN','flex_start':'MIN',start:'MIN',center:'CENTER','flex-end':'MAX','flex_end':'MAX',end:'MAX','space-between':'SPACE_BETWEEN'})[val] || 'MIN';
+}
+
+function mapAlignItems(val) {
+  return ({'flex-start':'MIN','flex_start':'MIN',start:'MIN',center:'CENTER','flex-end':'MAX','flex_end':'MAX',end:'MAX',baseline:'BASELINE'})[val] || 'MIN';
+}
+
+function applyCornerRadiusToNode(node, radius) {
+  if (Array.isArray(radius)) {
+    node.topLeftRadius = radius[0]||0; node.topRightRadius = radius[1]||0;
+    node.bottomRightRadius = radius[2]||0; node.bottomLeftRadius = radius[3]||0;
+  } else if (typeof radius === 'number' && radius > 0) {
+    node.cornerRadius = radius;
+  }
+}
+
+function collectFontsFromTree(data) {
+  var fonts = {};
+  function walk(node) {
+    if (!node) return;
+    if (node.fontFamily) { var f=node.fontFamily, s=node.fontWeight||'Regular'; fonts[f+'::'+s]={family:f,style:s}; }
+    if (node.children) node.children.forEach(walk);
+  }
+  if (data.elements) data.elements.forEach(walk);
+  return Object.values(fonts);
+}
+
+function countNodesInTree(data) {
+  var count = 0;
+  function walk(node) { count++; if (node.children) node.children.forEach(walk); }
+  if (data.elements) data.elements.forEach(walk);
+  return count;
+}
+
+async function createNodeEnhanced(nodeData, parentNode, depth) {
+  if ((depth||0) > 30) return;
+  var type = nodeData.type || 'frame';
+  var node;
+
+  if (type === 'text') {
+    node = figma.createText();
+    node.name = nodeData.name || 'Text';
+    var family = nodeData.fontFamily || 'Inter', style = nodeData.fontWeight || 'Regular';
+    try { await figma.loadFontAsync({family, style}); node.fontName = {family, style}; }
+    catch(e) { try { await figma.loadFontAsync({family:'Inter',style}); node.fontName={family:'Inter',style}; } catch(e2) { node.fontName={family:'Inter',style:'Regular'}; } }
+    node.characters = nodeData.content || ' ';
+    node.textAutoResize = 'HEIGHT';
+    if (nodeData.fontSize) node.fontSize = nodeData.fontSize;
+    if (nodeData.color) { var cRgb=hexToFigmaRgb(nodeData.color); if(cRgb) node.fills=[{type:'SOLID',color:{r:cRgb.r,g:cRgb.g,b:cRgb.b}}]; }
+    if (nodeData.letterSpacing) node.letterSpacing = {value:nodeData.letterSpacing,unit:'PIXELS'};
+    if (nodeData.lineHeight && nodeData.lineHeight !== 'auto') node.lineHeight = {value:nodeData.lineHeight,unit:'PIXELS'};
+    if (nodeData.textAlign) { var aMap={LEFT:'LEFT',CENTER:'CENTER',RIGHT:'RIGHT',JUSTIFIED:'JUSTIFIED'}; node.textAlignHorizontal=aMap[nodeData.textAlign]||'LEFT'; }
+
+  } else if (type === 'ellipse') {
+    node = figma.createEllipse();
+    node.name = nodeData.name || 'Ellipse';
+    if (nodeData.fill) { var eRgb=hexToFigmaRgb(nodeData.fill); if(eRgb) node.fills=[{type:'SOLID',color:{r:eRgb.r,g:eRgb.g,b:eRgb.b}}]; }
+
+  } else if (type === 'rect') {
+    node = figma.createRectangle();
+    node.name = nodeData.name || 'Rectangle';
+    if (nodeData.fill) { var rRgb=hexToFigmaRgb(nodeData.fill); if(rRgb) node.fills=[{type:'SOLID',color:{r:rRgb.r,g:rRgb.g,b:rRgb.b}}]; }
+    if (nodeData.cornerRadius != null) applyCornerRadiusToNode(node, nodeData.cornerRadius);
+
+  } else {
+    node = figma.createFrame();
+    node.name = nodeData.name || 'Frame';
+    if (nodeData.fill) { var fRgb=hexToFigmaRgb(nodeData.fill); if(fRgb){var fe={type:'SOLID',color:{r:fRgb.r,g:fRgb.g,b:fRgb.b}};if(nodeData.fillOpacity!=null&&nodeData.fillOpacity<1)fe.opacity=nodeData.fillOpacity;node.fills=[fe];} } else { node.fills=[]; }
+    if (nodeData.cornerRadius != null) applyCornerRadiusToNode(node, nodeData.cornerRadius);
+    if (nodeData.clipsContent) node.clipsContent = true;
+    if (nodeData.opacity != null && nodeData.opacity < 1) node.opacity = nodeData.opacity;
+    if (nodeData.layoutMode && nodeData.layoutMode !== 'NONE') {
+      node.layoutMode = nodeData.layoutMode;
+      if (nodeData.padding != null) {
+        if (Array.isArray(nodeData.padding)) { node.paddingTop=nodeData.padding[0]||0; node.paddingRight=nodeData.padding[1]||0; node.paddingBottom=nodeData.padding[2]||0; node.paddingLeft=nodeData.padding[3]||0; }
+        else if (typeof nodeData.padding === 'number') { node.paddingTop=node.paddingRight=node.paddingBottom=node.paddingLeft=nodeData.padding; }
+      }
+      if (nodeData.gap != null) node.itemSpacing = nodeData.gap;
+      if (nodeData.justifyContent) node.primaryAxisAlignItems = mapJustify(nodeData.justifyContent);
+      if (nodeData.alignItems) node.counterAxisAlignItems = mapAlignItems(nodeData.alignItems);
+      node.primaryAxisSizingMode = 'FIXED'; node.counterAxisSizingMode = 'FIXED';
+    } else { node.layoutMode = 'NONE'; }
+    if (nodeData.strokeColor) { var sRgb=hexToFigmaRgb(nodeData.strokeColor); if(sRgb){node.strokes=[{type:'SOLID',color:{r:sRgb.r,g:sRgb.g,b:sRgb.b}}];node.strokeWeight=nodeData.strokeWeight||1;node.strokeAlign='INSIDE';} }
+    if (nodeData.shadows && nodeData.shadows.length > 0) {
+      node.effects = nodeData.shadows.map(s => {
+        var sc={r:0,g:0,b:0,a:0.25};
+        if(s.color){if(s.color.charAt(0)==='#'){var c=hexToFigmaRgb(s.color);if(c)sc={r:c.r,g:c.g,b:c.b,a:c.a||0.25};}else if(s.color.indexOf('rgb')===0){var c2=parseRgbString(s.color);if(c2)sc=c2;}}
+        return {type:'DROP_SHADOW',visible:true,blendMode:'NORMAL',color:sc,offset:{x:s.offsetX||0,y:s.offsetY||0},radius:s.blur||0,spread:s.spread||0};
+      });
+    }
+    if (nodeData.children && nodeData.children.length) {
+      for (var i=0; i<nodeData.children.length; i++) {
+        try { await createNodeEnhanced(nodeData.children[i], node, (depth||0)+1); } catch(e) { console.error('child error:', e); }
+      }
+    }
+  }
+
+  if (nodeData.x != null) node.x = nodeData.x;
+  if (nodeData.y != null) node.y = nodeData.y;
+  if (nodeData.width && nodeData.height) { try { node.resize(typeof nodeData.width==='number'?nodeData.width:100, typeof nodeData.height==='number'?nodeData.height:100); } catch(e) {} }
+  parentNode.appendChild(node);
+
+  if (parentNode.layoutMode && parentNode.layoutMode !== 'NONE') {
+    try { if(nodeData.widthFill) node.layoutSizingHorizontal='FILL'; if(nodeData.heightFill) node.layoutSizingVertical='FILL'; } catch(e) {}
+  }
+}
+
+async function createDesignFromBrowserRender(data) {
+  figma.ui.postMessage({type:'code2design-status',status:'info',message:'Figma 프레임 생성 중...'});
+  try {
+    var fonts = collectFontsFromTree(data);
+    for (var i=0; i<fonts.length; i++) {
+      try { await figma.loadFontAsync(fonts[i]); } catch(e) {
+        try { await figma.loadFontAsync({family:'Inter',style:fonts[i].style}); } catch(e2) {
+          try { await figma.loadFontAsync({family:'Inter',style:'Regular'}); } catch(e3) {}
+        }
+      }
+    }
+    await figma.loadFontAsync({family:'Inter',style:'Regular'});
+    var mainFrame = figma.createFrame();
+    mainFrame.name = data.name || 'Code2Design';
+    mainFrame.resize(data.width||1440, data.height||900);
+    if (data.backgroundColor) { var bgRgb=hexToFigmaRgb(data.backgroundColor); if(bgRgb) mainFrame.fills=[{type:'SOLID',color:{r:bgRgb.r,g:bgRgb.g,b:bgRgb.b}}]; }
+    else { mainFrame.fills=[{type:'SOLID',color:{r:1,g:1,b:1}}]; }
+    if (data.elements && data.elements.length) {
+      for (var i=0; i<data.elements.length; i++) await createNodeEnhanced(data.elements[i], mainFrame, 0);
+    }
+    figma.currentPage.appendChild(mainFrame);
+    figma.currentPage.selection = [mainFrame];
+    figma.viewport.scrollAndZoomIntoView([mainFrame]);
+    var nodeCount = countNodesInTree(data);
+    figma.ui.postMessage({type:'code2design-status',status:'success',message:'디자인이 생성되었습니다! ('+nodeCount+'개 요소)'});
+  } catch(e) {
+    figma.ui.postMessage({type:'code2design-status',status:'error',message:'디자인 생성 실패: '+e.message});
+  }
+}
+
+async function createDesignFromGeminiResponse(data) {
+  figma.ui.postMessage({type:'code2design-status',status:'info',message:'Figma 프레임 생성 중...'});
+  try {
+    await figma.loadFontAsync({family:'Inter',style:'Regular'});
+    await figma.loadFontAsync({family:'Inter',style:'Bold'});
+    await figma.loadFontAsync({family:'Inter',style:'Medium'});
+    var mainFrame = figma.createFrame();
+    mainFrame.name = data.name || 'Code2Design';
+    mainFrame.resize(data.width||375, data.height||600);
+    if (data.backgroundColor) { var rgb=hexToFigmaRgb(data.backgroundColor); if(rgb) mainFrame.fills=[{type:'SOLID',color:{r:rgb.r,g:rgb.g,b:rgb.b}}]; }
+    else { mainFrame.fills=[{type:'SOLID',color:{r:1,g:1,b:1}}]; }
+    if (data.elements && data.elements.length) {
+      for (var i=0; i<data.elements.length; i++) await createNodeEnhanced(data.elements[i], mainFrame, 0);
+    }
+    figma.currentPage.appendChild(mainFrame);
+    figma.currentPage.selection = [mainFrame];
+    figma.viewport.scrollAndZoomIntoView([mainFrame]);
+    figma.ui.postMessage({type:'code2design-status',status:'success',message:'디자인이 생성되었습니다! ('+(data.elements?data.elements.length:0)+'개 요소)'});
+  } catch(e) {
+    figma.ui.postMessage({type:'code2design-status',status:'error',message:'디자인 생성 실패: '+e.message});
+  }
 }

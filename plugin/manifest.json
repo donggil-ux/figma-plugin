@@ -10,8 +10,10 @@
       "https://m.search.naver.com",
       "https://docs.google.com",
       "https://i.pravatar.cc",
-      "https://picsum.photos"
+      "https://picsum.photos",
+      "https://cdn.tailwindcss.com",
+      "http://localhost:7777"
     ],
-    "reasoning": "맞춤법 검사 API, Google Sheets 데이터 로드, 이미지 로드를 위해 필요합니다."
+    "reasoning": "맞춤법 검사 API, Google Sheets 데이터 로드, 이미지 로드, Tailwind CDN(Code2Design)을 위해 필요합니다."
   }
 }

@@ -898,6 +898,22 @@
       border-color: #110F1A;
     }
 
+
+    /* Code2Design 탭 스타일 */
+    .code-input-section { margin-bottom: 16px; }
+    .code-textarea {
+      width: 100%; height: 200px; padding: 12px;
+      border: 1px solid #D7D8E5; border-radius: 12px;
+      font-size: 12px; font-family: 'SF Mono', Monaco, 'Courier New', monospace;
+      resize: none; background: #1E1E1E; color: #D4D4D4; line-height: 1.5;
+      box-sizing: border-box;
+    }
+    .code-textarea:focus { outline: none; border-color: #6366F1; }
+    .code-textarea::placeholder { color: #6B6B6B; }
+    .code-preview { margin-top: 12px; padding: 12px; background: #F8F8FC; border-radius: 10px; }
+    .code-preview-title { font-size: 11px; font-weight: 600; color: #838499; margin-bottom: 6px; }
+    .code-preview-info { font-size: 12px; color: #110F1A; }
+
   </style>
 </head>
 <body>
@@ -911,11 +927,49 @@
       <button class="tab" data-tab="bridge">Text Editor</button>
       <button class="tab" data-tab="rename">Rename</button>
       <button class="tab" data-tab="style">Checker</button>
+      <button class="tab" data-tab="code2design">Code2Design</button>
     </div>
   </div>
 
   <!-- 스크롤 가능한 콘텐츠 영역 -->
   <div class="content-wrapper">
+
+  <!-- Code2Design 탭 -->
+  <div class="tab-content" id="code2design-tab">
+    <div class="main-content">
+      <div class="card">
+        <h2 class="card-title">Code → Figma Design</h2>
+        <div class="code-input-section">
+          <label class="input-label">HTML 코드를 붙여넣으세요</label>
+          <textarea class="code-textarea" id="codeInput" placeholder="<!DOCTYPE html>
+<html>
+<head>
+  <style>
+    body { font-family: sans-serif; padding: 40px; }
+  </style>
+</head>
+<body>
+  <h1>Hello World</h1>
+</body>
+</html>
+
+// Claude가 생성한 HTML 코드를 그대로 붙여넣으면
+// 자동으로 Figma 디자인이 생성됩니다"></textarea>
+        </div>
+        <div class="button-group">
+          <button class="btn btn-primary" id="generateDesignBtn" onclick="generateDesign()">
+            <span class="btn-text">🎨 Figma 디자인 생성</span>
+            <span class="btn-loading"><span class="btn-spinner"></span>생성 중...</span>
+          </button>
+        </div>
+        <div class="code-preview" id="codePreview" style="display:none;">
+          <div class="code-preview-title">파싱 결과</div>
+          <div class="code-preview-info" id="codePreviewInfo"></div>
+        </div>
+      </div>
+      <div class="status" id="code2designStatus"></div>
+    </div>
+  </div>
 
   <!-- Rename 탭 -->
   <div class="tab-content" id="rename-tab">
@@ -1273,6 +1327,15 @@
       }
 
       if (msg.type === 'check-spelling') checkSpelling(msg.texts);
+
+      // Code2Design 관련 메시지
+      if (msg.type === 'code2design-status') {
+        showCode2DesignStatus(msg.message, msg.status);
+        if (msg.status === 'success' || msg.status === 'error') {
+          const btn = document.getElementById('generateDesignBtn');
+          if (btn) btn.classList.remove('loading');
+        }
+      }
 
       // code.js에서 이미지 fetch 요청 → UI 스레드에서 처리 후 데이터 반환
       if (msg.type === 'fetch-image') {
@@ -1917,6 +1980,275 @@
     document.addEventListener('mouseup', () => {
       isResizing = false;
     });
+
+    // ===== Code2Design =====
+    function showCode2DesignStatus(message, type) {
+      const el = document.getElementById('code2designStatus');
+      if (el) { el.textContent = message; el.className = 'status show ' + type; }
+    }
+
+    function isFullHTMLDocument(code) {
+      var t = code.trimStart().toLowerCase();
+      return t.startsWith('<!doctype') || t.startsWith('<html');
+    }
+
+    function extractCSSAndHTML(code) {
+      let css = '', html = code;
+      html = code.replace(/<style[^>]*>([\s\S]*?)<\/style>/gi, function(m, c) { css += c + '\n'; return ''; });
+      html = html.replace(/<\/?(?:html|head|body|!DOCTYPE)[^>]*>/gi, '').trim();
+      html = html.replace(/<(?:link|meta|title)[^>]*>/gi, '');
+      return { css: css.trim(), html: html.trim() };
+    }
+
+    function buildSrcdocHTML(code) {
+      var reset = '<style>*,*::before,*::after{animation-duration:0.001ms!important;transition-duration:0.001ms!important;}</style>';
+      if (isFullHTMLDocument(code)) {
+        return code.indexOf('</head>') >= 0 ? code.replace('</head>', reset + '</head>') : code.replace(/<body/i, reset + '<body') || code;
+      }
+      var p = extractCSSAndHTML(code);
+      return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>*{margin:0;padding:0;box-sizing:border-box;}</style>' + reset + '<style>' + p.css + '</style></head><body>' + p.html + '</body></html>';
+    }
+
+    function buildSrcdocTailwind(code) {
+      if (isFullHTMLDocument(code)) {
+        return code.indexOf('cdn.tailwindcss.com') < 0
+          ? code.replace(/<head([^>]*)>/i, '<head$1><script src="https://cdn.tailwindcss.com"><\/script>')
+          : code;
+      }
+      var p = extractCSSAndHTML(code);
+      return '<!DOCTYPE html><html><head><meta charset="utf-8"><script src="https://cdn.tailwindcss.com"><\/script><style>' + p.css + '</style></head><body>' + p.html + '</body></html>';
+    }
+
+    function rgbStringToHex(str) {
+      if (!str) return '#000000';
+      var m = str.match(/rgba?\(\s*(\d+)\s*,\s*(\d+)\s*,\s*(\d+)/);
+      if (!m) return '#000000';
+      return '#' + [parseInt(m[1]),parseInt(m[2]),parseInt(m[3])].map(c => c.toString(16).padStart(2,'0')).join('');
+    }
+
+    function parseRgbAlpha(str) {
+      var m = str && str.match(/rgba\([^,]+,[^,]+,[^,]+,\s*([\d.]+)\)/);
+      return m ? parseFloat(m[1]) : 1;
+    }
+
+    function c2dParseBorderRadius(style) {
+      var tl=parseFloat(style.borderTopLeftRadius)||0, tr=parseFloat(style.borderTopRightRadius)||0,
+          br=parseFloat(style.borderBottomRightRadius)||0, bl=parseFloat(style.borderBottomLeftRadius)||0;
+      if (tl===tr&&tr===br&&br===bl) return tl>0?tl:0;
+      return [tl,tr,br,bl];
+    }
+
+    function c2dParseBorder(style) {
+      var w = parseFloat(style.borderTopWidth);
+      if (!w||w===0) return null;
+      return { color: rgbStringToHex(style.borderTopColor), width: w };
+    }
+
+    function c2dParseBoxShadow(str) {
+      if (!str||str==='none') return null;
+      var shadows=[], parts=str.split(/,(?![^(]*\))/);
+      for (var i=0;i<parts.length;i++) {
+        var part=parts[i].trim();
+        if (part.indexOf('inset')>=0) continue;
+        var m=part.match(/([-\d.]+)px\s+([-\d.]+)px\s+([-\d.]+)px\s*(?:([-\d.]+)px)?\s*(.*)/);
+        if (m) shadows.push({offsetX:parseFloat(m[1]),offsetY:parseFloat(m[2]),blur:parseFloat(m[3]),spread:parseFloat(m[4])||0,color:m[5].trim()});
+      }
+      return shadows.length>0?shadows:null;
+    }
+
+    function c2dMapFontWeight(w) {
+      var n=parseInt(w); if(isNaN(n)) return 'Regular';
+      if(n<=300) return 'Light'; if(n<=400) return 'Regular'; if(n<=500) return 'Medium';
+      if(n<=600) return 'Semi Bold'; if(n<=700) return 'Bold'; if(n<=800) return 'Extra Bold';
+      return 'Black';
+    }
+
+    function c2dMapTextAlign(v) {
+      return ({left:'LEFT',center:'CENTER',right:'RIGHT',justify:'JUSTIFIED',start:'LEFT',end:'RIGHT'})[v]||'LEFT';
+    }
+
+    function isTextElement(el) {
+      if (el.children.length>0) return false;
+      var t=el.innerText||el.textContent;
+      return t&&t.trim().length>0;
+    }
+
+    function traverseDOM(el, win, depth) {
+      if ((depth||0)>20) return null;
+      var tag=el.tagName;
+      if (!tag) return null;
+      if (['SCRIPT','STYLE','LINK','META','BR','NOSCRIPT','TEMPLATE','SVG'].indexOf(tag)>=0) return null;
+      var style=win.getComputedStyle(el);
+      if (style.display==='none'||style.visibility==='hidden') return null;
+      var rect=el.getBoundingClientRect();
+      var w=rect.width||el.offsetWidth||0, h=rect.height||el.offsetHeight||0;
+      if (w===0&&h===0) return null;
+      var node={};
+
+      if (isTextElement(el)) {
+        node.type='text'; node.name=tag.toLowerCase();
+        node.content=(el.innerText||el.textContent||'').trim();
+        node.width=Math.round(w); node.height=Math.round(h);
+        node.fontSize=parseFloat(style.fontSize)||14;
+        node.fontFamily=(style.fontFamily||'Inter').split(',')[0].replace(/['"]/g,'').trim();
+        node.fontWeight=c2dMapFontWeight(style.fontWeight);
+        node.color=rgbStringToHex(style.color);
+        var ls=parseFloat(style.letterSpacing); if(ls&&!isNaN(ls)) node.letterSpacing=ls;
+        var lh=parseFloat(style.lineHeight); if(lh&&!isNaN(lh)) node.lineHeight=lh;
+        node.textAlign=c2dMapTextAlign(style.textAlign);
+        return node;
+      }
+
+      node.type='frame';
+      node.name=tag.toLowerCase()+(el.id?'#'+el.id:'')+(el.className&&typeof el.className==='string'?'.'+el.className.trim().split(/\s+/)[0]:'');
+      node.width=Math.round(w); node.height=Math.round(h);
+      var bg=style.backgroundColor;
+      if (bg&&bg!=='rgba(0, 0, 0, 0)'&&bg!=='transparent') { node.fill=rgbStringToHex(bg); var a=parseRgbAlpha(bg); if(a<1) node.fillOpacity=a; }
+      var cr=c2dParseBorderRadius(style); if(cr) node.cornerRadius=cr;
+      var border=c2dParseBorder(style); if(border){node.strokeColor=border.color;node.strokeWeight=border.width;}
+      var shadow=c2dParseBoxShadow(style.boxShadow); if(shadow) node.shadows=shadow;
+      node.clipsContent=(style.overflow==='hidden'||style.overflowX==='hidden'||style.overflowY==='hidden');
+      var op=parseFloat(style.opacity); if(op<1) node.opacity=op;
+
+      var display=style.display;
+      if (display==='flex'||display==='inline-flex') {
+        node.layoutMode=(style.flexDirection==='column'||style.flexDirection==='column-reverse')?'VERTICAL':'HORIZONTAL';
+        node.justifyContent=style.justifyContent; node.alignItems=style.alignItems;
+        node.gap=parseFloat(style.gap)||parseFloat(style.columnGap)||0;
+        node.padding=[parseFloat(style.paddingTop)||0,parseFloat(style.paddingRight)||0,parseFloat(style.paddingBottom)||0,parseFloat(style.paddingLeft)||0];
+      } else {
+        node.layoutMode='NONE';
+        node.padding=[parseFloat(style.paddingTop)||0,parseFloat(style.paddingRight)||0,parseFloat(style.paddingBottom)||0,parseFloat(style.paddingLeft)||0];
+      }
+
+      if (tag==='IMG') { node.name='img'+(el.alt?'.'+el.alt.substring(0,20):''); node.fill='#E5E7EB'; node.children=[]; return node; }
+
+      node.children=[];
+      for (var i=0;i<el.children.length;i++) {
+        var childNode=traverseDOM(el.children[i],win,(depth||0)+1);
+        if (childNode) {
+          if (node.layoutMode==='NONE') {
+            var childRect=el.children[i].getBoundingClientRect();
+            childNode.x=Math.round(childRect.left-rect.left); childNode.y=Math.round(childRect.top-rect.top);
+          } else {
+            var childStyle=win.getComputedStyle(el.children[i]);
+            var flexGrow=parseFloat(childStyle.flexGrow)||0;
+            if (flexGrow>0) { if(node.layoutMode==='HORIZONTAL') childNode.widthFill=true; else childNode.heightFill=true; }
+          }
+          node.children.push(childNode);
+        }
+      }
+      for (var j=0;j<el.childNodes.length;j++) {
+        var cn=el.childNodes[j];
+        if (cn.nodeType===3&&cn.textContent.trim()) {
+          node.children.push({type:'text',name:'text',content:cn.textContent.trim(),
+            fontSize:parseFloat(style.fontSize)||14,
+            fontFamily:(style.fontFamily||'Inter').split(',')[0].replace(/['"]/g,'').trim(),
+            fontWeight:c2dMapFontWeight(style.fontWeight),color:rgbStringToHex(style.color)});
+        }
+      }
+      return node;
+    }
+
+    function countNodesJSON(tree) {
+      var count=0;
+      function walk(arr){if(!arr)return;for(var i=0;i<arr.length;i++){count++;if(arr[i].children)walk(arr[i].children);}}
+      walk(tree.elements); return count;
+    }
+
+    function detectCodeType(code) {
+      var t=code.trim();
+      if (t.charAt(0)==='{') { try{JSON.parse(t.replace(/```json\n?|\n?```/g,'').trim());return 'json';}catch(e){} }
+      if (t.indexOf('cdn.tailwindcss.com')>=0||(t.indexOf('class="')>=0&&t.indexOf('<style')<0)) return 'tailwind';
+      return 'html';
+    }
+
+    function generateDesign() {
+      var btn=document.getElementById('generateDesignBtn');
+      var code=(document.getElementById('codeInput')||{}).value;
+      if (!code||!code.trim()) { showCode2DesignStatus('코드를 입력해주세요','error'); return; }
+      code=code.trim();
+      var codeType=detectCodeType(code);
+
+      if (codeType==='json') {
+        try {
+          var geminiResult=JSON.parse(code.replace(/```json\n?|\n?```/g,'').trim());
+          if(btn) btn.classList.add('loading');
+          showCode2DesignStatus('Figma 프레임 생성 중...','info');
+          parent.postMessage({pluginMessage:{type:'generate-from-tailwind',geminiResult:geminiResult}},'*');
+          return;
+        } catch(e) {}
+      }
+
+      if(btn) btn.classList.add('loading');
+      showCode2DesignStatus('렌더링 중...','info');
+
+      try {
+        var srcdoc=(codeType==='tailwind')?buildSrcdocTailwind(code):buildSrcdocHTML(code);
+        var iframe=document.getElementById('renderFrame');
+        var renderTimeout=setTimeout(function(){
+          if(btn) btn.classList.remove('loading');
+          showCode2DesignStatus('렌더링 시간 초과. 코드를 확인해주세요.','error');
+        },15000);
+
+        iframe.onload=function(){
+          var delay=(codeType==='tailwind')?800:500;
+          setTimeout(function(){
+            clearTimeout(renderTimeout);
+            try {
+              showCode2DesignStatus('스타일 추출 중...','info');
+              var doc=iframe.contentDocument||iframe.contentWindow.document;
+              var body=doc.body, docEl=doc.documentElement, win=iframe.contentWindow;
+              var bgColor=rgbStringToHex(win.getComputedStyle(body).backgroundColor);
+              var docWidth=Math.max(docEl.scrollWidth,body.scrollWidth,1440);
+              var docHeight=Math.max(docEl.scrollHeight,body.scrollHeight,100);
+              var designTree={
+                name:'Code2Design', width:docWidth, height:docHeight,
+                backgroundColor:(bgColor==='#000000'&&win.getComputedStyle(body).backgroundColor==='rgba(0, 0, 0, 0)')?'#FFFFFF':bgColor,
+                elements:[]
+              };
+              for (var i=0;i<body.children.length;i++) {
+                var nodeJSON=traverseDOM(body.children[i],win,0);
+                if (nodeJSON) {
+                  var childRect=body.children[i].getBoundingClientRect();
+                  nodeJSON.x=Math.round(childRect.left); nodeJSON.y=Math.round(childRect.top);
+                  designTree.elements.push(nodeJSON);
+                }
+              }
+              if (designTree.elements.length===0) {
+                showCode2DesignStatus('렌더링된 요소가 없습니다. HTML 코드를 확인해주세요.','error');
+                if(btn) btn.classList.remove('loading'); return;
+              }
+              var nodeCount=countNodesJSON(designTree);
+              var preview=document.getElementById('codePreview'), previewInfo=document.getElementById('codePreviewInfo');
+              if(preview) preview.style.display='block';
+              if(previewInfo) previewInfo.innerHTML='<div>추출된 요소: '+nodeCount+'개</div>';
+              showCode2DesignStatus('Figma 프레임 생성 중... ('+nodeCount+'개 요소)','info');
+              parent.postMessage({pluginMessage:{type:'generate-from-browser-render',designTree:designTree}},'*');
+            } catch(e) {
+              if(btn) btn.classList.remove('loading');
+              showCode2DesignStatus('스타일 추출 실패: '+e.message,'error');
+            }
+          }, delay);
+        };
+
+        iframe.onerror=function(){
+          clearTimeout(renderTimeout);
+          if(btn) btn.classList.remove('loading');
+          showCode2DesignStatus('렌더링 실패','error');
+        };
+
+        iframe.srcdoc=srcdoc;
+      } catch(e) {
+        if(btn) btn.classList.remove('loading');
+        showCode2DesignStatus('처리 실패: '+e.message,'error');
+      }
+    }
+
   </script>
+
+  <!-- Code2Design: 숨겨진 렌더링 iframe -->
+  <iframe id="renderFrame" style="position:absolute;left:-9999px;top:-9999px;width:1440px;height:900px;border:none;visibility:hidden;" sandbox="allow-scripts allow-same-origin"></iframe>
+
 </body>
 </html>
