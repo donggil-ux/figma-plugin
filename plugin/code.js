@@ -1112,13 +1112,22 @@ function startImageFill(imageType) {
   appliedImageCount = 0;
 
   for (const node of fillableNodes) {
-    const imageUrl = getImageUrl(imageType, node.width, node.height);
-    console.log(`[Avatar] fetch-image → nodeId=${node.id}, name="${node.name}", url=${imageUrl}`);
-    figma.ui.postMessage({
-      type: 'fetch-image',
-      url: imageUrl,
-      nodeId: node.id
-    });
+    if (imageType === 'profile') {
+      // 네트워크 없이 Canvas로 아바타 직접 생성
+      console.log(`[Avatar] generate-avatar → nodeId=${node.id}, name="${node.name}"`);
+      figma.ui.postMessage({
+        type: 'generate-avatar',
+        nodeId: node.id
+      });
+    } else {
+      const imageUrl = getImageUrl(imageType, node.width, node.height);
+      console.log(`[Image] fetch-image → nodeId=${node.id}, url=${imageUrl}`);
+      figma.ui.postMessage({
+        type: 'fetch-image',
+        url: imageUrl,
+        nodeId: node.id
+      });
+    }
   }
 }
 
