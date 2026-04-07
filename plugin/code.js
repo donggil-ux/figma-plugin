@@ -1378,25 +1378,40 @@ function scanDesignSystem(checkerType) {
     return;
   }
 
-  let results = [];
+  try {
+    let results = [];
 
-  switch (checkerType) {
-    case 'component':
-      results = checkComponents(selection);
-      break;
-    case 'variable':
-      results = checkVariables(selection);
-      break;
-    case 'textstyle':
-      results = checkTextStyles(selection);
-      break;
+    switch (checkerType) {
+      case 'component':
+        results = checkComponents(selection);
+        break;
+      case 'variable':
+        results = checkVariables(selection);
+        break;
+      case 'textstyle':
+        results = checkTextStyles(selection);
+        break;
+      default:
+        figma.ui.postMessage({
+          type: 'checker-status',
+          status: 'error',
+          message: `알 수 없는 체커 타입: ${checkerType}`
+        });
+        return;
+    }
+
+    figma.ui.postMessage({
+      type: 'checker-results',
+      checkerType: checkerType,
+      results: results
+    });
+  } catch (e) {
+    figma.ui.postMessage({
+      type: 'checker-status',
+      status: 'error',
+      message: `스캔 오류: ${e.message}`
+    });
   }
-
-  figma.ui.postMessage({
-    type: 'checker-results',
-    checkerType: checkerType,
-    results: results
-  });
 }
 
 // 컴포넌트 체크 - 디자인 시스템 컴포넌트가 아닌 레이어 찾기
@@ -1404,69 +1419,33 @@ function checkComponents(selection) {
   const results = [];
 
   function checkNode(node) {
-    // COMPONENT_SET, COMPONENT는 디자인 시스템 컴포넌트이므로 패스
-    if (node.type === 'COMPONENT_SET' || node.type === 'COMPONENT') {
-      results.push({
-        nodeId: node.id,
-        name: node.name,
-        type: 'component',
-        detail: '디자인 시스템 컴포넌트',
-        badge: '적용됨',
-        isApplied: true,
-        severity: 'success'
-      });
-      return;
-    }
-
-    // INSTANCE는 컴포넌트 인스턴스이므로 적용됨
-    if (node.type === 'INSTANCE') {
-      // 메인 컴포넌트 정보 확인
-      let componentName = '알 수 없는 컴포넌트';
-      try {
-        if (node.mainComponent) {
-          componentName = node.mainComponent.name;
-        }
-      } catch (e) {}
-
-      results.push({
-        nodeId: node.id,
-        name: node.name,
-        type: 'component',
-        detail: `인스턴스: ${componentName}`,
-        badge: '적용됨',
-        isApplied: true,
-        severity: 'success'
-      });
-
-      // 인스턴스 내부는 검사하지 않음
-      return;
-    }
-
-    // FRAME, GROUP, SECTION 등 컨테이너는 컴포넌트가 아닌 일반 레이어
-    if (node.type === 'FRAME' || node.type === 'GROUP' || node.type === 'SECTION') {
-      results.push({
-        nodeId: node.id,
-        name: node.name,
-        type: 'component',
-        detail: `${getShortType(node.type)} - 컴포넌트 아님`,
-        badge: '미적용',
-        isApplied: false,
-        severity: 'error'
-      });
-    }
-
-    // 자식 노드 검사
-    if ('children' in node && node.children) {
-      for (const child of node.children) {
-        checkNode(child);
+    try {
+      if (node.type === 'COMPONENT_SET' || node.type === 'COMPONENT') {
+        results.push({ nodeId: node.id, name: node.name, type: 'component',
+          detail: '디자인 시스템 컴포넌트', badge: '적용됨', isApplied: true, severity: 'success' });
+        return;
       }
-    }
+
+      if (node.type === 'INSTANCE') {
+        let componentName = '알 수 없는 컴포넌트';
+        try { if (node.mainComponent) componentName = node.mainComponent.name; } catch (e) {}
+        results.push({ nodeId: node.id, name: node.name, type: 'component',
+          detail: `인스턴스: ${componentName}`, badge: '적용됨', isApplied: true, severity: 'success' });
+        return;
+      }
+
+      if (node.type === 'FRAME' || node.type === 'GROUP' || node.type === 'SECTION') {
+        results.push({ nodeId: node.id, name: node.name, type: 'component',
+          detail: `${getShortType(node.type)} - 컴포넌트 아님`, badge: '미적용', isApplied: false, severity: 'error' });
+      }
+
+      if ('children' in node && node.children) {
+        for (const child of node.children) checkNode(child);
+      }
+    } catch (e) {}
   }
 
-  for (const node of selection) {
-    checkNode(node);
-  }
-
+  for (const node of selection) checkNode(node);
   return results;
 }
 
@@ -1475,11 +1454,11 @@ function checkVariables(selection) {
   const results = [];
 
   function checkNode(node) {
+    try {
     // fills 체크 (색상 변수)
     if ('fills' in node && Array.isArray(node.fills) && node.fills !== figma.mixed) {
       let hasVariableFill = false;
 
-      // boundVariables 체크
       try {
         if (node.boundVariables && node.boundVariables.fills) {
           hasVariableFill = true;
@@ -1550,6 +1529,7 @@ function checkVariables(selection) {
         checkNode(child);
       }
     }
+    } catch (e) {} // checkNode try-catch
   }
 
   for (const node of selection) {
@@ -1766,6 +1746,7 @@ function checkTextStyles(selection) {
   const results = [];
 
   function checkNode(node) {
+    try {
     // 텍스트 노드만 검사
     if (node.type === 'TEXT') {
       // textStyleId 체크
@@ -1828,6 +1809,7 @@ function checkTextStyles(selection) {
         checkNode(child);
       }
     }
+    } catch (e) {} // checkNode try-catch
   }
 
   for (const node of selection) {
