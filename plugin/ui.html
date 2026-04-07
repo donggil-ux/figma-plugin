@@ -1461,7 +1461,9 @@
 
       // 크리에이터 데이터 업데이트
       if (sheetsData && sheetsData.creator && sheetsData.creator.length > 0) {
-        dummyData.creator = sheetsData.creator;
+        dummyData.creator = sheetsData.creator.map(field =>
+          field.name === 'Avatar' ? { ...field, isImage: true, imageType: 'profile' } : field
+        );
         console.log('크리에이터 데이터 업데이트 완료, 개수:', dummyData.creator[0].values.length);
       } else {
         console.log('크리에이터 시트 로드 실패, 기본 데이터 사용');
@@ -1469,7 +1471,9 @@
 
       // 팬 데이터 업데이트
       if (sheetsData && sheetsData.fan && sheetsData.fan.length > 0) {
-        dummyData.fan = sheetsData.fan;
+        dummyData.fan = sheetsData.fan.map(field =>
+          field.name === 'Avatar' ? { ...field, isImage: true, imageType: 'profile' } : field
+        );
         console.log('팬 데이터 업데이트 완료, 개수:', dummyData.fan[0].values.length);
       } else {
         console.log('팬 시트 로드 실패, 기본 데이터 사용');
