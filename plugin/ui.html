@@ -1444,11 +1444,14 @@
       }
 
       // code.js에서 이미지 fetch 요청 → UI 스레드에서 처리 후 데이터 반환
-      if (msg.type === 'generate-avatar') {
-        // Canvas로 아바타 직접 생성 (네트워크 불필요)
-        const bytes = generateAvatarBytes();
+      if (msg.type === 'generate-avatars-batch') {
+        // Canvas 아바타 일괄 생성 (메시지 왕복 1회로 단축)
+        const results = msg.nodeIds.map(nodeId => ({
+          nodeId,
+          data: generateAvatarBytes()
+        }));
         parent.postMessage({
-          pluginMessage: { type: 'image-fetch-result', nodeId: msg.nodeId, data: bytes }
+          pluginMessage: { type: 'avatars-batch-result', results }
         }, '*');
       }
 
