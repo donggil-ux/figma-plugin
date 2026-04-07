@@ -1,0 +1,13 @@
+{
+  "name": "likey-figma-plugin-proxy",
+  "version": "1.0.0",
+  "description": "Image proxy server for Likey Figma plugin",
+  "main": "proxy-server.cjs",
+  "scripts": {
+    "start": "node proxy-server.cjs"
+  },
+  "engines": {
+    "node": ">=18"
+  },
+  "license": "MIT"
+}
