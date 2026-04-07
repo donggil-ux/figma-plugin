@@ -1287,6 +1287,7 @@
 
     window.onmessage = (event) => {
       const msg = event.data.pluginMessage;
+      if (!msg) return;
 
       if (msg.type === 'status') showBridgeStatus(msg.message, msg.status);
       if (msg.type === 'rename-status') showRenameStatus(msg.message, msg.status);

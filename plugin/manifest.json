@@ -9,6 +9,7 @@
     "allowedDomains": [
       "https://m.search.naver.com",
       "https://docs.google.com",
+      "https://randomuser.me",
       "https://i.pravatar.cc",
       "https://picsum.photos",
       "https://cdn.tailwindcss.com",

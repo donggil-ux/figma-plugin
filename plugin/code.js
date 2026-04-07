@@ -1258,16 +1258,16 @@ function findFillableNodes(selection) {
 
 // 프로필 이미지 URL 목록 (커스텀 이미지)
 const PROFILE_IMAGES = [
-  'https://i.pravatar.cc/300?img=1',
-  'https://i.pravatar.cc/300?img=5',
-  'https://i.pravatar.cc/300?img=9',
-  'https://i.pravatar.cc/300?img=16',
-  'https://i.pravatar.cc/300?img=20',
-  'https://i.pravatar.cc/300?img=25',
-  'https://i.pravatar.cc/300?img=32',
-  'https://i.pravatar.cc/300?img=36',
-  'https://i.pravatar.cc/300?img=41',
-  'https://i.pravatar.cc/300?img=47'
+  'https://randomuser.me/api/portraits/women/1.jpg',
+  'https://randomuser.me/api/portraits/men/5.jpg',
+  'https://randomuser.me/api/portraits/women/9.jpg',
+  'https://randomuser.me/api/portraits/men/16.jpg',
+  'https://randomuser.me/api/portraits/women/20.jpg',
+  'https://randomuser.me/api/portraits/men/25.jpg',
+  'https://randomuser.me/api/portraits/women/32.jpg',
+  'https://randomuser.me/api/portraits/men/36.jpg',
+  'https://randomuser.me/api/portraits/women/41.jpg',
+  'https://randomuser.me/api/portraits/men/47.jpg'
 ];
 
 // 이미지 타입에 따른 URL 생성
