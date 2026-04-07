@@ -142,9 +142,19 @@ figma.ui.onmessage = async (msg) => {
 
   // UI에서 아바타 일괄 생성 결과 수신
   if (msg.type === 'avatars-batch-result') {
-    pendingImageCount = msg.results.length;
+    const results = msg.results || [];
+    if (results.length === 0) {
+      pendingImageCount = 0;
+      figma.ui.postMessage({
+        type: 'data-fill-status',
+        status: 'error',
+        message: '아바타 생성 실패 — 레이어를 다시 선택해주세요.'
+      });
+      return;
+    }
+    pendingImageCount = results.length;
     appliedImageCount = 0;
-    for (const r of msg.results) {
+    for (const r of results) {
       applyImageData(r.nodeId, r.data);
     }
   }
