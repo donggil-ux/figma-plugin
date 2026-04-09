@@ -1212,6 +1212,15 @@
   </div><!-- content-wrapper 닫기 -->
 
   <script>
+    // ===== HTML 이스케이프 (XSS 방지) =====
+    function escapeHtml(str) {
+      return String(str ?? '')
+        .replace(/&/g, '&amp;')
+        .replace(/</g, '&lt;')
+        .replace(/>/g, '&gt;')
+        .replace(/"/g, '&quot;');
+    }
+
     // ===== Snackbar & Button loading utilities =====
     let snackbarTimer = null;
     function showSnackbar(message, type) {
@@ -1413,8 +1422,8 @@
           showSnackbar(`맞춤법 오류 ${msg.errors.length}개 발견`, 'error');
           spellResults.innerHTML = msg.errors.map((err, idx) => `
             <div class="spell-item">
-              <div><span class="original">${err.original}</span> → <span class="correct">${err.correct}</span></div>
-              <div style="color:#5A5A73;margin-top:6px;font-size:12px;">${err.help || ''}</div>
+              <div><span class="original">${escapeHtml(err.original)}</span> → <span class="correct">${escapeHtml(err.correct)}</span></div>
+              <div style="color:#5A5A73;margin-top:6px;font-size:12px;">${escapeHtml(err.help || '')}</div>
               <button class="fix-btn" data-idx="${idx}">수정하기</button>
             </div>
           `).join('');
@@ -1493,6 +1502,7 @@
       if (msg.type === 'checker-results') {
         stopLoading('checker-results');
         checkerResults[msg.checkerType] = msg.results;
+        checkerScanned[msg.checkerType] = true;
         renderCheckerResults();
         const errorCount = msg.results.filter(r => !r.isApplied).length;
         const statusMsg = `스캔 완료: ${errorCount}개 미적용 발견`;
@@ -1947,12 +1957,12 @@
             ${item.status === 'match' ? '✅' : item.status === 'mismatch' ? '❌' : '⚠️'}
           </div>
           <div class="compare-item-content">
-            <div class="compare-item-label">${item.label || '텍스트'}</div>
-            <div class="compare-item-text">${item.status === 'missing' ? item.expected : item.actual}</div>
+            <div class="compare-item-label">${escapeHtml(item.label || '텍스트')}</div>
+            <div class="compare-item-text">${escapeHtml(item.status === 'missing' ? item.expected : item.actual)}</div>
             ${item.status === 'mismatch' ? `
               <div class="compare-item-diff">
-                <div class="compare-item-expected">기획: ${item.expected}</div>
-                <div class="compare-item-actual">디자인: ${item.actual}</div>
+                <div class="compare-item-expected">기획: ${escapeHtml(item.expected)}</div>
+                <div class="compare-item-actual">디자인: ${escapeHtml(item.actual)}</div>
               </div>
             ` : ''}
           </div>
@@ -1975,6 +1985,7 @@
     // ===== Checker 탭 =====
     let currentCheckerType = 'component';
     let checkerResults = { component: [], variable: [], textstyle: [] };
+    let checkerScanned = { component: false, variable: false, textstyle: false };
     const checkerResultsEl = document.getElementById('checkerResults');
     const checkerStatus = document.getElementById('checkerStatus');
 
@@ -2001,6 +2012,18 @@
 
     function renderCheckerResults() {
       const results = checkerResults[currentCheckerType] || [];
+
+      if (!checkerScanned[currentCheckerType]) {
+        checkerResultsEl.innerHTML = `
+          <div class="checker-empty">
+            <div class="checker-empty-icon">🔍</div>
+            <div class="checker-empty-text">레이어를 선택하고 스캔하세요</div>
+            <div class="checker-empty-subtext">선택한 레이어에서 디자인 시스템 적용 여부를 확인합니다</div>
+          </div>
+        `;
+        updateCheckerSummary('-', '-', '-');
+        return;
+      }
 
       if (results.length === 0) {
         checkerResultsEl.innerHTML = `
@@ -2035,15 +2058,15 @@
       }
 
       checkerResultsEl.innerHTML = errorItems.map(item => `
-        <div class="checker-item ${item.severity === 'warning' ? 'warning' : ''}" data-node-id="${item.nodeId}">
+        <div class="checker-item ${item.severity === 'warning' ? 'warning' : ''}" data-node-id="${escapeHtml(item.nodeId)}">
           <div class="checker-item-icon">
             ${getCheckerIcon(item.type)}
           </div>
           <div class="checker-item-info">
-            <div class="checker-item-name">${item.name}</div>
-            <div class="checker-item-detail">${item.detail}</div>
+            <div class="checker-item-name">${escapeHtml(item.name)}</div>
+            <div class="checker-item-detail">${escapeHtml(item.detail)}</div>
           </div>
-          <div class="checker-item-badge">${item.badge}</div>
+          <div class="checker-item-badge">${escapeHtml(item.badge)}</div>
         </div>
       `).join('');
 

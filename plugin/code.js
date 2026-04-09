@@ -117,7 +117,9 @@ figma.ui.onmessage = async (msg) => {
 
   // UI 리사이즈
   if (msg.type === 'resize') {
-    figma.ui.resize(msg.width, msg.height);
+    const w = Math.max(300, Math.min(msg.width, 900));
+    const h = Math.max(400, Math.min(msg.height, 1200));
+    figma.ui.resize(w, h);
   }
 
   // 더미 데이터 적용
@@ -1340,21 +1342,6 @@ function getImageUrl(imageType, width, height) {
   }
 }
 
-// 이미지 데이터 가져오기
-async function fetchImageData(url) {
-  try {
-    const response = await fetch(url);
-    if (!response.ok) {
-      throw new Error(`HTTP error! status: ${response.status}`);
-    }
-    const arrayBuffer = await response.arrayBuffer();
-    return new Uint8Array(arrayBuffer);
-  } catch (e) {
-    console.error('Fetch image error:', e);
-    return null;
-  }
-}
-
 // ===== 디자인 시스템 체커 =====
 
 // 노드 선택하기
@@ -1692,16 +1679,16 @@ function performComparison(notionKeywords, figmaTexts) {
     for (let j = 0; j < figmaTexts.length; j++) {
       if (matchedFigmaIndices.has(j)) continue;
 
-      const figma = figmaTexts[j];
+      const ft = figmaTexts[j];
 
       // 정확히 일치
-      if (figma.text === notion.text) {
+      if (ft.text === notion.text) {
         results.push({
           status: 'match',
           label: notion.label,
           expected: notion.text,
-          actual: figma.text,
-          nodeId: figma.nodeId
+          actual: ft.text,
+          nodeId: ft.nodeId
         });
         matchedNotionIndices.add(i);
         matchedFigmaIndices.add(j);
@@ -1722,14 +1709,14 @@ function performComparison(notionKeywords, figmaTexts) {
     for (let j = 0; j < figmaTexts.length; j++) {
       if (matchedFigmaIndices.has(j)) continue;
 
-      const figma = figmaTexts[j];
+      const ft = figmaTexts[j];
 
       // 포함 관계 체크
-      const similarity = calculateSimilarity(notion.text, figma.text);
+      const similarity = calculateSimilarity(notion.text, ft.text);
 
       if (similarity > bestSimilarity && similarity > 0.3) {
         bestSimilarity = similarity;
-        bestMatch = figma;
+        bestMatch = ft;
         bestMatchIndex = j;
       }
     }
