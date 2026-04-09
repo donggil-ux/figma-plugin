@@ -2208,33 +2208,53 @@
     }
 
     function extractCSSAndHTML(code) {
-      let css = '', html = code;
+      var css = '', html = code, links = '';
       html = code.replace(/<style[^>]*>([\s\S]*?)<\/style>/gi, function(m, c) { css += c + '\n'; return ''; });
+      // Preserve <link rel="stylesheet"> (Google Fonts, icon fonts, etc.)
+      html = html.replace(/<link([^>]*)>/gi, function(m, attrs) {
+        if (/rel=["']?stylesheet["']?/i.test(attrs)) { links += m + '\n'; }
+        return '';
+      });
       html = html.replace(/<\/?(?:html|head|body|!DOCTYPE)[^>]*>/gi, '').trim();
-      html = html.replace(/<(?:link|meta|title)[^>]*>/gi, '');
-      return { css: css.trim(), html: html.trim() };
+      html = html.replace(/<(?:meta|title)[^>]*>/gi, '');
+      return { css: css.trim(), html: html.trim(), links: links.trim() };
     }
+
+    var C2D_READY_SCRIPT = '<script>window.addEventListener("load",function(){setTimeout(function(){parent.postMessage({c2dReady:true},"*");},300);});<\/script>';
 
     function buildSrcdocHTML(code) {
       var reset = '<style>*,*::before,*::after{animation-duration:0.001ms!important;transition-duration:0.001ms!important;}</style>';
       if (isFullHTMLDocument(code)) {
-        return code.indexOf('</head>') >= 0 ? code.replace('</head>', reset + '</head>') : code.replace(/<body/i, reset + '<body') || code;
+        var base = code;
+        if (base.indexOf('</head>') >= 0) {
+          base = base.replace('</head>', reset + C2D_READY_SCRIPT + '</head>');
+        } else {
+          base = base.replace(/<body/i, reset + C2D_READY_SCRIPT + '<body') || base;
+        }
+        return base;
       }
       var p = extractCSSAndHTML(code);
-      return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>*{margin:0;padding:0;box-sizing:border-box;}</style>' + reset + '<style>' + p.css + '</style></head><body>' + p.html + '</body></html>';
+      return '<!DOCTYPE html><html><head><meta charset="utf-8">' + p.links +
+        '<style>*{margin:0;padding:0;box-sizing:border-box;}</style>' + reset +
+        '<style>' + p.css + '</style>' + C2D_READY_SCRIPT + '</head><body>' + p.html + '</body></html>';
     }
-
-    var C2D_READY_SCRIPT = '<script>window.addEventListener("load",function(){setTimeout(function(){parent.postMessage({c2dReady:true},"*");},200);});<\/script>';
 
     function buildSrcdocTailwind(code) {
       if (isFullHTMLDocument(code)) {
         var base = code.indexOf('cdn.tailwindcss.com') < 0
           ? code.replace(/<head([^>]*)>/i, '<head$1><script src="https://cdn.tailwindcss.com"><\/script>')
           : code;
-        return base.replace('</body>', C2D_READY_SCRIPT + '</body>');
+        if (base.indexOf('</head>') >= 0) {
+          base = base.replace('</head>', C2D_READY_SCRIPT + '</head>');
+        } else {
+          base = base.replace('</body>', C2D_READY_SCRIPT + '</body>');
+        }
+        return base;
       }
       var p = extractCSSAndHTML(code);
-      return '<!DOCTYPE html><html><head><meta charset="utf-8"><script src="https://cdn.tailwindcss.com"><\/script><style>' + p.css + '</style></head><body>' + p.html + C2D_READY_SCRIPT + '</body></html>';
+      return '<!DOCTYPE html><html><head><meta charset="utf-8">' + p.links +
+        '<script src="https://cdn.tailwindcss.com"><\/script><style>' + p.css + '</style>' +
+        C2D_READY_SCRIPT + '</head><body>' + p.html + '</body></html>';
     }
 
     function rgbStringToHex(str) {
@@ -2295,7 +2315,8 @@
       if ((depth||0)>20) return null;
       var tag=el.tagName;
       if (!tag) return null;
-      if (['SCRIPT','STYLE','LINK','META','BR','NOSCRIPT','TEMPLATE','SVG'].indexOf(tag)>=0) return null;
+      var tagUpper=tag.toUpperCase();
+      if (['SCRIPT','STYLE','LINK','META','BR','NOSCRIPT','TEMPLATE'].indexOf(tagUpper)>=0) return null;
       var style=win.getComputedStyle(el);
       if (style.display==='none'||style.visibility==='hidden') return null;
       var rect=el.getBoundingClientRect();
@@ -2303,8 +2324,17 @@
       if (w===0&&h===0) return null;
       var node={};
 
+      // SVG: render as a solid placeholder rectangle (skip complex SVG internals)
+      if (tagUpper==='SVG'||el.namespaceURI==='http://www.w3.org/2000/svg') {
+        node.type='frame'; node.name='svg-icon';
+        node.width=Math.round(w); node.height=Math.round(h);
+        var svgColor=style.fill&&style.fill!=='none'?rgbStringToHex(style.fill):rgbStringToHex(style.color);
+        node.fill=svgColor||'#6B7280'; node.cornerRadius=2; node.children=[];
+        return node;
+      }
+
       if (isTextElement(el)) {
-        node.type='text'; node.name=tag.toLowerCase();
+        node.type='text'; node.name=tagUpper.toLowerCase();
         node.content=(el.innerText||el.textContent||'').trim();
         node.width=Math.round(w); node.height=Math.round(h);
         node.fontSize=parseFloat(style.fontSize)||14;
@@ -2318,10 +2348,16 @@
       }
 
       node.type='frame';
-      node.name=tag.toLowerCase()+(el.id?'#'+el.id:'')+(el.className&&typeof el.className==='string'?'.'+el.className.trim().split(/\s+/)[0]:'');
+      node.name=tagUpper.toLowerCase()+(el.id?'#'+el.id:'')+(el.className&&typeof el.className==='string'&&el.className.trim()?'.'+el.className.trim().split(/\s+/)[0]:'');
       node.width=Math.round(w); node.height=Math.round(h);
       var bg=style.backgroundColor;
       if (bg&&bg!=='rgba(0, 0, 0, 0)'&&bg!=='transparent') { node.fill=rgbStringToHex(bg); var a=parseRgbAlpha(bg); if(a<1) node.fillOpacity=a; }
+      // background-image (gradient or image): mark as image fill placeholder
+      var bgImg=style.backgroundImage;
+      if (bgImg&&bgImg!=='none') {
+        if (bgImg.indexOf('gradient')>=0) { node.fillGradient=bgImg; }
+        else { node.fill=node.fill||'#E5E7EB'; node.isImageFill=true; }
+      }
       var cr=c2dParseBorderRadius(style); if(cr) node.cornerRadius=cr;
       var border=c2dParseBorder(style); if(border){node.strokeColor=border.color;node.strokeWeight=border.width;}
       var shadow=c2dParseBoxShadow(style.boxShadow); if(shadow) node.shadows=shadow;
@@ -2335,11 +2371,25 @@
         node.gap=parseFloat(style.gap)||parseFloat(style.columnGap)||0;
         node.padding=[parseFloat(style.paddingTop)||0,parseFloat(style.paddingRight)||0,parseFloat(style.paddingBottom)||0,parseFloat(style.paddingLeft)||0];
       } else {
+        // CSS grid and all other layouts: use absolute positioning (NONE)
         node.layoutMode='NONE';
         node.padding=[parseFloat(style.paddingTop)||0,parseFloat(style.paddingRight)||0,parseFloat(style.paddingBottom)||0,parseFloat(style.paddingLeft)||0];
       }
 
-      if (tag==='IMG') { node.name='img'+(el.alt?'.'+el.alt.substring(0,20):''); node.fill='#E5E7EB'; node.children=[]; return node; }
+      if (tagUpper==='IMG') { node.name='img'+(el.alt?'.'+el.alt.substring(0,20):''); node.fill='#E5E7EB'; node.isImageFill=true; node.children=[]; return node; }
+
+      // INPUT/TEXTAREA/SELECT: treat as leaf frame (no children needed)
+      if (['INPUT','TEXTAREA','SELECT','BUTTON','CANVAS'].indexOf(tagUpper)>=0) {
+        node.children=[];
+        var valText=el.value||el.placeholder||el.innerText||'';
+        if (valText.trim()) {
+          node.children.push({type:'text',name:'label',content:valText.trim(),
+            fontSize:parseFloat(style.fontSize)||14,
+            fontFamily:(style.fontFamily||'Inter').split(',')[0].replace(/['"]/g,'').trim(),
+            fontWeight:c2dMapFontWeight(style.fontWeight),color:rgbStringToHex(style.color)});
+        }
+        return node;
+      }
 
       node.children=[];
       for (var i=0;i<el.children.length;i++) {
@@ -2350,8 +2400,16 @@
             childNode.x=Math.round(childRect.left-rect.left); childNode.y=Math.round(childRect.top-rect.top);
           } else {
             var childStyle=win.getComputedStyle(el.children[i]);
-            var flexGrow=parseFloat(childStyle.flexGrow)||0;
-            if (flexGrow>0) { if(node.layoutMode==='HORIZONTAL') childNode.widthFill=true; else childNode.heightFill=true; }
+            var childPos=childStyle.position;
+            // Absolutely positioned children inside flex: give them coords
+            if (childPos==='absolute'||childPos==='fixed') {
+              var childRect2=el.children[i].getBoundingClientRect();
+              childNode.x=Math.round(childRect2.left-rect.left); childNode.y=Math.round(childRect2.top-rect.top);
+              childNode.positionAbsolute=true;
+            } else {
+              var flexGrow=parseFloat(childStyle.flexGrow)||0;
+              if (flexGrow>0) { if(node.layoutMode==='HORIZONTAL') childNode.widthFill=true; else childNode.heightFill=true; }
+            }
           }
           node.children.push(childNode);
         }
@@ -2374,9 +2432,16 @@
       walk(tree.elements); return count;
     }
 
+    function stripCodeFences(code) {
+      // Remove markdown code fences: ```html, ```css, ```jsx, ```tsx, etc.
+      return code.replace(/^```(?:html|css|jsx?|tsx?|vue|svelte|markup|xml)?\s*\n?/i, '').replace(/\n?```\s*$/,'').trim();
+    }
+
     function detectCodeType(code) {
       var t=code.trim();
-      if (t.charAt(0)==='{') { try{JSON.parse(t.replace(/```json\n?|\n?```/g,'').trim());return 'json';}catch(e){} }
+      // JSON (possibly wrapped in ```json fences)
+      var jsonCandidate=t.replace(/^```json\s*\n?/i,'').replace(/\n?```\s*$/,'').trim();
+      if (jsonCandidate.charAt(0)==='{') { try{JSON.parse(jsonCandidate);return 'json';}catch(e){} }
       if (t.indexOf('cdn.tailwindcss.com')>=0) return 'tailwind';
       return 'html';
     }
@@ -2385,7 +2450,8 @@
       var btn=document.getElementById('generateDesignBtn');
       var code=(document.getElementById('codeInput')||{}).value;
       if (!code||!code.trim()) { showCode2DesignStatus('코드를 입력해주세요','error'); return; }
-      code=code.trim();
+      // Strip markdown code fences that Claude often wraps code in
+      code=stripCodeFences(code.trim());
       var codeType=detectCodeType(code);
 
       if (codeType==='json') {
@@ -2457,13 +2523,9 @@
         };
 
         iframe.onload=function(){
-          if (codeType==='tailwind') {
-            // Tailwind: c2dReady 메시지 대기 (CDN 로드 완료 후)
-            window.addEventListener('message', c2dReadyHandler);
-          } else {
-            // 일반 HTML: 500ms 후 캡처
-            setTimeout(captureDesign, 500);
-          }
+          // Always wait for c2dReady (window.onload signal injected in all srcdoc types)
+          // This correctly handles Google Fonts, external stylesheets, and Tailwind CDN
+          window.addEventListener('message', c2dReadyHandler);
         };
 
         iframe.onerror=function(){
