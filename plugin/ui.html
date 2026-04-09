@@ -2203,14 +2203,17 @@
       return '<!DOCTYPE html><html><head><meta charset="utf-8"><style>*{margin:0;padding:0;box-sizing:border-box;}</style>' + reset + '<style>' + p.css + '</style></head><body>' + p.html + '</body></html>';
     }
 
+    var C2D_READY_SCRIPT = '<script>window.addEventListener("load",function(){setTimeout(function(){parent.postMessage({c2dReady:true},"*");},200);});<\/script>';
+
     function buildSrcdocTailwind(code) {
       if (isFullHTMLDocument(code)) {
-        return code.indexOf('cdn.tailwindcss.com') < 0
+        var base = code.indexOf('cdn.tailwindcss.com') < 0
           ? code.replace(/<head([^>]*)>/i, '<head$1><script src="https://cdn.tailwindcss.com"><\/script>')
           : code;
+        return base.replace('</body>', C2D_READY_SCRIPT + '</body>');
       }
       var p = extractCSSAndHTML(code);
-      return '<!DOCTYPE html><html><head><meta charset="utf-8"><script src="https://cdn.tailwindcss.com"><\/script><style>' + p.css + '</style></head><body>' + p.html + '</body></html>';
+      return '<!DOCTYPE html><html><head><meta charset="utf-8"><script src="https://cdn.tailwindcss.com"><\/script><style>' + p.css + '</style></head><body>' + p.html + C2D_READY_SCRIPT + '</body></html>';
     }
 
     function rgbStringToHex(str) {
@@ -2353,7 +2356,7 @@
     function detectCodeType(code) {
       var t=code.trim();
       if (t.charAt(0)==='{') { try{JSON.parse(t.replace(/```json\n?|\n?```/g,'').trim());return 'json';}catch(e){} }
-      if (t.indexOf('cdn.tailwindcss.com')>=0||(t.indexOf('class="')>=0&&t.indexOf('<style')<0)) return 'tailwind';
+      if (t.indexOf('cdn.tailwindcss.com')>=0) return 'tailwind';
       return 'html';
     }
 
@@ -2381,53 +2384,70 @@
         var srcdoc=(codeType==='tailwind')?buildSrcdocTailwind(code):buildSrcdocHTML(code);
         var iframe=document.getElementById('renderFrame');
         var renderTimeout=setTimeout(function(){
+          window.removeEventListener('message', c2dReadyHandler);
           if(btn) btn.classList.remove('loading');
           showCode2DesignStatus('렌더링 시간 초과. 코드를 확인해주세요.','error');
         },15000);
 
-        iframe.onload=function(){
-          var delay=(codeType==='tailwind')?800:500;
-          setTimeout(function(){
-            clearTimeout(renderTimeout);
-            try {
-              showCode2DesignStatus('스타일 추출 중...','info');
-              var doc=iframe.contentDocument||iframe.contentWindow.document;
-              var body=doc.body, docEl=doc.documentElement, win=iframe.contentWindow;
-              var bgColor=rgbStringToHex(win.getComputedStyle(body).backgroundColor);
-              var docWidth=Math.max(docEl.scrollWidth,body.scrollWidth,1440);
-              var docHeight=Math.max(docEl.scrollHeight,body.scrollHeight,100);
-              var designTree={
-                name:'Code2Design', width:docWidth, height:docHeight,
-                backgroundColor:(bgColor==='#000000'&&win.getComputedStyle(body).backgroundColor==='rgba(0, 0, 0, 0)')?'#FFFFFF':bgColor,
-                elements:[]
-              };
-              for (var i=0;i<body.children.length;i++) {
-                var nodeJSON=traverseDOM(body.children[i],win,0);
-                if (nodeJSON) {
-                  var childRect=body.children[i].getBoundingClientRect();
-                  nodeJSON.x=Math.round(childRect.left); nodeJSON.y=Math.round(childRect.top);
-                  designTree.elements.push(nodeJSON);
-                }
+        function captureDesign() {
+          clearTimeout(renderTimeout);
+          window.removeEventListener('message', c2dReadyHandler);
+          try {
+            showCode2DesignStatus('스타일 추출 중...','info');
+            var doc=iframe.contentDocument||iframe.contentWindow.document;
+            var body=doc.body, docEl=doc.documentElement, win=iframe.contentWindow;
+            var bgColor=rgbStringToHex(win.getComputedStyle(body).backgroundColor);
+            var docWidth=Math.max(docEl.scrollWidth,body.scrollWidth,1440);
+            var docHeight=Math.max(docEl.scrollHeight,body.scrollHeight,100);
+            var designTree={
+              name:'Code2Design', width:docWidth, height:docHeight,
+              backgroundColor:(bgColor==='#000000'&&win.getComputedStyle(body).backgroundColor==='rgba(0, 0, 0, 0)')?'#FFFFFF':bgColor,
+              elements:[]
+            };
+            for (var i=0;i<body.children.length;i++) {
+              var nodeJSON=traverseDOM(body.children[i],win,0);
+              if (nodeJSON) {
+                var childRect=body.children[i].getBoundingClientRect();
+                nodeJSON.x=Math.round(childRect.left); nodeJSON.y=Math.round(childRect.top);
+                designTree.elements.push(nodeJSON);
               }
-              if (designTree.elements.length===0) {
-                showCode2DesignStatus('렌더링된 요소가 없습니다. HTML 코드를 확인해주세요.','error');
-                if(btn) btn.classList.remove('loading'); return;
-              }
-              var nodeCount=countNodesJSON(designTree);
-              var preview=document.getElementById('codePreview'), previewInfo=document.getElementById('codePreviewInfo');
-              if(preview) preview.style.display='block';
-              if(previewInfo) previewInfo.innerHTML='<div>추출된 요소: '+nodeCount+'개</div>';
-              showCode2DesignStatus('Figma 프레임 생성 중... ('+nodeCount+'개 요소)','info');
-              parent.postMessage({pluginMessage:{type:'generate-from-browser-render',designTree:designTree}},'*');
-            } catch(e) {
-              if(btn) btn.classList.remove('loading');
-              showCode2DesignStatus('스타일 추출 실패: '+e.message,'error');
             }
-          }, delay);
+            if (designTree.elements.length===0) {
+              showCode2DesignStatus('렌더링된 요소가 없습니다. HTML 코드를 확인해주세요.','error');
+              if(btn) btn.classList.remove('loading'); return;
+            }
+            var nodeCount=countNodesJSON(designTree);
+            var preview=document.getElementById('codePreview'), previewInfo=document.getElementById('codePreviewInfo');
+            if(preview) preview.style.display='block';
+            if(previewInfo) previewInfo.innerHTML='<div>추출된 요소: '+nodeCount+'개</div>';
+            showCode2DesignStatus('Figma 프레임 생성 중... ('+nodeCount+'개 요소)','info');
+            parent.postMessage({pluginMessage:{type:'generate-from-browser-render',designTree:designTree}},'*');
+          } catch(e) {
+            if(btn) btn.classList.remove('loading');
+            showCode2DesignStatus('스타일 추출 실패: '+e.message,'error');
+          }
+        }
+
+        // Tailwind: CDN 완전 로드 후 캡처 (window.onload 메시지 대기)
+        var c2dReadyHandler = function(e) {
+          if (e.data && e.data.c2dReady && e.source === iframe.contentWindow) {
+            captureDesign();
+          }
+        };
+
+        iframe.onload=function(){
+          if (codeType==='tailwind') {
+            // Tailwind: c2dReady 메시지 대기 (CDN 로드 완료 후)
+            window.addEventListener('message', c2dReadyHandler);
+          } else {
+            // 일반 HTML: 500ms 후 캡처
+            setTimeout(captureDesign, 500);
+          }
         };
 
         iframe.onerror=function(){
           clearTimeout(renderTimeout);
+          window.removeEventListener('message', c2dReadyHandler);
           if(btn) btn.classList.remove('loading');
           showCode2DesignStatus('렌더링 실패','error');
         };
