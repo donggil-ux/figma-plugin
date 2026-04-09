@@ -122,7 +122,7 @@ figma.ui.onmessage = async (msg) => {
 
   // 더미 데이터 적용
   if (msg.type === 'apply-dummy-data') {
-    applyDummyData(msg.value);
+    applyDummyData(msg.value, msg.fieldName);
   }
 
   // 랜덤 채우기
@@ -957,8 +957,23 @@ async function spellCheck() {
   });
 }
 
-// 더미 데이터 적용
-async function applyDummyData(value) {
+// 이름이 일치하는 텍스트 노드 찾기 (재귀)
+function findTextNodesByName(node, nameLower) {
+  const found = [];
+  if (node.type === 'TEXT' && node.name.toLowerCase() === nameLower) {
+    found.push(node);
+    return found;
+  }
+  if ('children' in node && node.children) {
+    for (const child of node.children) {
+      found.push(...findTextNodesByName(child, nameLower));
+    }
+  }
+  return found;
+}
+
+// 더미 데이터 적용 (fieldName 기반 이름 매칭)
+async function applyDummyData(value, fieldName) {
   const selection = figma.currentPage.selection;
 
   if (selection.length === 0) {
@@ -971,9 +986,12 @@ async function applyDummyData(value) {
   }
 
   let changed = 0;
+  const nameLower = fieldName ? fieldName.toLowerCase() : null;
 
   for (const node of selection) {
-    const textNodes = findAllTextNodes(node);
+    const textNodes = nameLower
+      ? findTextNodesByName(node, nameLower)
+      : findAllTextNodes(node);
 
     for (const textNode of textNodes) {
       const success = await changeTextInNode(textNode, value);
@@ -985,7 +1003,9 @@ async function applyDummyData(value) {
     figma.ui.postMessage({
       type: 'data-fill-status',
       status: 'error',
-      message: '선택된 영역에 텍스트가 없습니다.'
+      message: fieldName
+        ? `"${fieldName}" 이름의 레이어를 찾을 수 없습니다.`
+        : '선택된 영역에 텍스트가 없습니다.'
     });
     return;
   }
@@ -993,7 +1013,7 @@ async function applyDummyData(value) {
   figma.ui.postMessage({
     type: 'data-fill-status',
     status: 'success',
-    message: `${changed}개의 텍스트에 데이터를 적용했습니다.`
+    message: `${changed}개의 "${fieldName || '텍스트'}" 레이어에 데이터를 적용했습니다.`
   });
 }
 
@@ -1204,18 +1224,11 @@ function applyImageData(nodeId, data) {
         appliedImageCount++;
       }
     }
-  } catch (e) {
-    console.error('[Avatar] applyImageData error:', e.message);
-  }
-
-  if (!data || data.length === 0) {
-    console.error(`[Avatar] image-fetch-result: data null for nodeId=${nodeId} — fetch failed (CORS or network issue?)`);
-  }
+  } catch (e) {}
 
   pendingImageCount--;
   if (pendingImageCount <= 0) {
     const success = appliedImageCount > 0;
-    console.log(`[Avatar] done: applied=${appliedImageCount}, pending=${pendingImageCount}`);
     figma.ui.postMessage({
       type: 'data-fill-status',
       status: success ? 'success' : 'error',
@@ -1960,7 +1973,7 @@ async function createNodeEnhanced(nodeData, parentNode, depth) {
     }
     if (nodeData.children && nodeData.children.length) {
       for (var i=0; i<nodeData.children.length; i++) {
-        try { await createNodeEnhanced(nodeData.children[i], node, (depth||0)+1); } catch(e) { console.error('child error:', e); }
+        try { await createNodeEnhanced(nodeData.children[i], node, (depth||0)+1); } catch(e) {}
       }
     }
   }

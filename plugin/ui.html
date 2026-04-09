@@ -1459,14 +1459,12 @@
       }
 
       if (msg.type === 'fetch-image') {
-        console.log('[Image] UI fetching:', msg.url);
         fetch(msg.url)
           .then(r => {
             if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
             return r.arrayBuffer();
           })
           .then(buffer => {
-            console.log('[Avatar] fetch OK, bytes:', buffer.byteLength, 'nodeId:', msg.nodeId);
             parent.postMessage({
               pluginMessage: {
                 type: 'image-fetch-result',
@@ -1827,7 +1825,7 @@
           const randomValue = field.values[Math.floor(Math.random() * field.values.length)];
           startLoading('applyDataBtn', 'data-fill-status');
           parent.postMessage({
-            pluginMessage: { type: 'apply-dummy-data', value: randomValue }
+            pluginMessage: { type: 'apply-dummy-data', value: randomValue, fieldName: field.name }
           }, '*');
         }
       }
