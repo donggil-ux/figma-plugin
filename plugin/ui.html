@@ -1821,7 +1821,7 @@
         if (field.isImage) {
           startLoading('applyDataBtn', 'data-fill-status');
           parent.postMessage({
-            pluginMessage: { type: 'apply-image-fill', imageType: field.imageType }
+            pluginMessage: { type: 'apply-image-fill', imageType: field.imageType, fieldName: field.name }
           }, '*');
         } else {
           const randomValue = field.values[Math.floor(Math.random() * field.values.length)];

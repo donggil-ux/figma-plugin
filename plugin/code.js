@@ -132,7 +132,7 @@ figma.ui.onmessage = async (msg) => {
 
   // 이미지 채우기 (UI 스레드에서 fetch 후 데이터 전달)
   if (msg.type === 'apply-image-fill') {
-    startImageFill(msg.imageType);
+    startImageFill(msg.imageType, msg.fieldName);
   }
 
   // UI에서 이미지 데이터 수신 후 적용 (단일)
@@ -1104,7 +1104,7 @@ async function fillMatchingLayersSequential(node, fieldMap) {
 let pendingImageCount = 0;
 let appliedImageCount = 0;
 
-function startImageFill(imageType) {
+function startImageFill(imageType, fieldName) {
   const selection = figma.currentPage.selection;
 
   if (selection.length === 0) {
@@ -1116,13 +1116,21 @@ function startImageFill(imageType) {
     return;
   }
 
-  const fillableNodes = findFillableNodes(selection);
+  // fieldName이 있으면 이름 기반으로 찾고, 없으면 기존 방식으로 탐색
+  let fillableNodes = fieldName
+    ? findImageNodesByName(selection, fieldName)
+    : findFillableNodes(selection);
+
+  // 이름 기반으로 못 찾았으면 fallback
+  if (fieldName && fillableNodes.length === 0) {
+    fillableNodes = findFillableNodes(selection);
+  }
 
   if (fillableNodes.length === 0) {
     figma.ui.postMessage({
       type: 'data-fill-status',
       status: 'error',
-      message: '이미지를 적용할 수 있는 레이어가 없습니다. (Frame, Rectangle, Ellipse 등)'
+      message: `"${fieldName || '이미지'}" 레이어를 찾을 수 없습니다. 레이어 이름이 "${fieldName || 'Avatar Image'}"인지 확인해주세요.`
     });
     return;
   }
@@ -1142,6 +1150,28 @@ function startImageFill(imageType) {
       figma.ui.postMessage({ type: 'fetch-image', url: imageUrl, nodeId: node.id });
     }
   }
+}
+
+// 레이어 이름과 일치하는 이미지 적용 가능한 노드 찾기 (재귀)
+function findImageNodesByName(selection, fieldName) {
+  const nodes = [];
+  const nameLower = fieldName.toLowerCase();
+
+  function collect(node) {
+    if (node.name.toLowerCase() === nameLower) {
+      // 이름이 일치하고 fills를 가진 비-텍스트 노드
+      if ('fills' in node && node.type !== 'TEXT') {
+        nodes.push(node);
+        return; // 자식은 탐색하지 않음
+      }
+    }
+    if ('children' in node && node.children) {
+      for (const child of node.children) collect(child);
+    }
+  }
+
+  for (const node of selection) collect(node);
+  return nodes;
 }
 
 // UI 스레드에서 받은 이미지 데이터를 노드에 적용
