@@ -1971,7 +1971,17 @@ async function createNodeEnhanced(nodeData, parentNode, depth) {
   parentNode.appendChild(node);
 
   if (parentNode.layoutMode && parentNode.layoutMode !== 'NONE') {
-    try { if(nodeData.widthFill) node.layoutSizingHorizontal='FILL'; if(nodeData.heightFill) node.layoutSizingVertical='FILL'; } catch(e) {}
+    try {
+      if (nodeData.positionAbsolute) {
+        // Opt this node out of auto-layout flow so it floats at its captured coordinates
+        node.layoutPositioning = 'ABSOLUTE';
+        if (nodeData.x != null) node.x = nodeData.x;
+        if (nodeData.y != null) node.y = nodeData.y;
+      } else {
+        if(nodeData.widthFill) node.layoutSizingHorizontal='FILL';
+        if(nodeData.heightFill) node.layoutSizingVertical='FILL';
+      }
+    } catch(e) {}
   }
 }
 

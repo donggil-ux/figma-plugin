@@ -2211,7 +2211,8 @@
       var css = '', html = code, links = '';
       html = code.replace(/<style[^>]*>([\s\S]*?)<\/style>/gi, function(m, c) { css += c + '\n'; return ''; });
       // Preserve <link rel="stylesheet"> (Google Fonts, icon fonts, etc.)
-      html = html.replace(/<link([^>]*)>/gi, function(m, attrs) {
+      // Handles both <link ... > and <link ... /> (self-closing)
+      html = html.replace(/<link([^>]*)\/?>/gi, function(m, attrs) {
         if (/rel=["']?stylesheet["']?/i.test(attrs)) { links += m + '\n'; }
         return '';
       });
@@ -2333,6 +2334,27 @@
         return node;
       }
 
+      // Leaf frame elements: must be checked BEFORE isTextElement,
+      // otherwise <button>Text</button> would be misclassified as a text node.
+      if (['INPUT','TEXTAREA','SELECT','BUTTON','CANVAS'].indexOf(tagUpper)>=0) {
+        node.type='frame';
+        node.name=tagUpper.toLowerCase()+(el.id?'#'+el.id:'');
+        node.width=Math.round(w); node.height=Math.round(h);
+        var bg2=style.backgroundColor;
+        if (bg2&&bg2!=='rgba(0, 0, 0, 0)'&&bg2!=='transparent') { node.fill=rgbStringToHex(bg2); }
+        var cr2=c2dParseBorderRadius(style); if(cr2) node.cornerRadius=cr2;
+        var border2=c2dParseBorder(style); if(border2){node.strokeColor=border2.color;node.strokeWeight=border2.width;}
+        node.layoutMode='NONE'; node.children=[];
+        var valText=el.value||el.placeholder||(el.innerText||el.textContent||'').trim();
+        if (valText.trim()) {
+          node.children.push({type:'text',name:'label',content:valText.trim(),
+            fontSize:parseFloat(style.fontSize)||14,
+            fontFamily:(style.fontFamily||'Inter').split(',')[0].replace(/['"]/g,'').trim(),
+            fontWeight:c2dMapFontWeight(style.fontWeight),color:rgbStringToHex(style.color)});
+        }
+        return node;
+      }
+
       if (isTextElement(el)) {
         node.type='text'; node.name=tagUpper.toLowerCase();
         node.content=(el.innerText||el.textContent||'').trim();
@@ -2352,10 +2374,10 @@
       node.width=Math.round(w); node.height=Math.round(h);
       var bg=style.backgroundColor;
       if (bg&&bg!=='rgba(0, 0, 0, 0)'&&bg!=='transparent') { node.fill=rgbStringToHex(bg); var a=parseRgbAlpha(bg); if(a<1) node.fillOpacity=a; }
-      // background-image (gradient or image): mark as image fill placeholder
+      // background-image (gradient or image): mark type, keep solid fill as fallback
       var bgImg=style.backgroundImage;
       if (bgImg&&bgImg!=='none') {
-        if (bgImg.indexOf('gradient')>=0) { node.fillGradient=bgImg; }
+        if (bgImg.indexOf('gradient')>=0) { node.fillGradient=bgImg; node.fill=node.fill||'#E2E8F0'; }
         else { node.fill=node.fill||'#E5E7EB'; node.isImageFill=true; }
       }
       var cr=c2dParseBorderRadius(style); if(cr) node.cornerRadius=cr;
@@ -2377,19 +2399,6 @@
       }
 
       if (tagUpper==='IMG') { node.name='img'+(el.alt?'.'+el.alt.substring(0,20):''); node.fill='#E5E7EB'; node.isImageFill=true; node.children=[]; return node; }
-
-      // INPUT/TEXTAREA/SELECT: treat as leaf frame (no children needed)
-      if (['INPUT','TEXTAREA','SELECT','BUTTON','CANVAS'].indexOf(tagUpper)>=0) {
-        node.children=[];
-        var valText=el.value||el.placeholder||el.innerText||'';
-        if (valText.trim()) {
-          node.children.push({type:'text',name:'label',content:valText.trim(),
-            fontSize:parseFloat(style.fontSize)||14,
-            fontFamily:(style.fontFamily||'Inter').split(',')[0].replace(/['"]/g,'').trim(),
-            fontWeight:c2dMapFontWeight(style.fontWeight),color:rgbStringToHex(style.color)});
-        }
-        return node;
-      }
 
       node.children=[];
       for (var i=0;i<el.children.length;i++) {
@@ -2439,9 +2448,7 @@
 
     function detectCodeType(code) {
       var t=code.trim();
-      // JSON (possibly wrapped in ```json fences)
-      var jsonCandidate=t.replace(/^```json\s*\n?/i,'').replace(/\n?```\s*$/,'').trim();
-      if (jsonCandidate.charAt(0)==='{') { try{JSON.parse(jsonCandidate);return 'json';}catch(e){} }
+      if (t.charAt(0)==='{') { try{JSON.parse(t);return 'json';}catch(e){} }
       if (t.indexOf('cdn.tailwindcss.com')>=0) return 'tailwind';
       return 'html';
     }
@@ -2456,7 +2463,7 @@
 
       if (codeType==='json') {
         try {
-          var geminiResult=JSON.parse(code.replace(/```json\n?|\n?```/g,'').trim());
+          var geminiResult=JSON.parse(code);
           if(btn) btn.classList.add('loading');
           showCode2DesignStatus('Figma 프레임 생성 중...','info');
           parent.postMessage({pluginMessage:{type:'generate-from-tailwind',geminiResult:geminiResult}},'*');
