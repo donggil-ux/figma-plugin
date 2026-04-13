@@ -1039,8 +1039,8 @@
 
         <!-- 파일 업로드 모드 -->
         <div id="c2d-file-mode" style="display:none;">
-          <div class="file-drop-zone" id="fileUploadArea" onclick="document.getElementById('htmlFileInput').click()">
-            <input type="file" id="htmlFileInput" accept=".html,.htm,.css,.js,.jsx,.tsx,.vue,.svg" />
+          <input type="file" id="htmlFileInput" accept=".html,.htm,.css,.js,.jsx,.tsx,.vue,.svg" style="display:none;" />
+          <label for="htmlFileInput" class="file-drop-zone" id="fileUploadArea">
             <div class="file-drop-zone-icon" id="fileDropIcon">☁️</div>
             <div id="fileDropDefault">
               <div class="file-drop-zone-title">클릭하거나 파일을 드래그하세요</div>
@@ -1048,9 +1048,9 @@
             </div>
             <div class="file-drop-zone-name" id="fileUploadName" style="display:none;">
               <span id="fileNameText"></span>
-              <button onclick="clearUploadedFile(event)">✕</button>
+              <button type="button" onclick="clearUploadedFile(event)">✕</button>
             </div>
-          </div>
+          </label>
         </div>
 
         <div class="button-group">
