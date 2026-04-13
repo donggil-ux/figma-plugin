@@ -195,6 +195,24 @@ figma.ui.onmessage = async (msg) => {
   if (msg.type === 'generate-from-browser-render') {
     createDesignFromBrowserRender(msg.designTree);
   }
+
+  // Code2Design: Figma 플러그인 스크립트 직접 실행
+  if (msg.type === 'execute-figma-script') {
+    try {
+      var scriptResult = eval(msg.code); // eslint-disable-line no-eval
+      if (scriptResult && typeof scriptResult.then === 'function') {
+        scriptResult.then(function() {
+          figma.ui.postMessage({ type: 'code2design-status', status: 'success', message: '스크립트 실행 완료' });
+        }).catch(function(e) {
+          figma.ui.postMessage({ type: 'code2design-status', status: 'error', message: '실행 오류: ' + (e.message || String(e)) });
+        });
+      } else {
+        figma.ui.postMessage({ type: 'code2design-status', status: 'success', message: '스크립트 실행 완료' });
+      }
+    } catch(e) {
+      figma.ui.postMessage({ type: 'code2design-status', status: 'error', message: '실행 오류: ' + (e.message || String(e)) });
+    }
+  }
 };
 
 // 선택된 레이어 정보 가져오기

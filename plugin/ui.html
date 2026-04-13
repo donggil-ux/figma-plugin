@@ -2445,13 +2445,15 @@
     }
 
     function stripCodeFences(code) {
-      // Remove markdown code fences: ```html, ```css, ```json, ```jsx, ```tsx, etc.
-      return code.replace(/^```(?:html|css|json|jsx?|tsx?|vue|svelte|markup|xml)?\s*\n?/i, '').replace(/\n?```\s*$/,'').trim();
+      // Remove markdown code fences: ```html, ```css, ```json, ```jsx, ```tsx, ```js, ```ts, etc.
+      return code.replace(/^```(?:html|css|json|jsx?|tsx?|vue|svelte|markup|xml|javascript|typescript)?\s*\n?/i, '').replace(/\n?```\s*$/,'').trim();
     }
 
     function detectCodeType(code) {
       var t=code.trim();
       if (t.charAt(0)==='{') { try{JSON.parse(t);return 'json';}catch(e){} }
+      // Figma plugin script: uses figma.* APIs directly
+      if (/figma\.(createFrame|createText|createEllipse|createRectangle|currentPage|loadFontAsync|createComponent|createInstance|notify)\s*[\(\[]/.test(t)) return 'figma-script';
       if (t.indexOf('cdn.tailwindcss.com')>=0) return 'tailwind';
       return 'html';
     }
@@ -2475,6 +2477,13 @@
           parent.postMessage({pluginMessage:{type:'generate-from-tailwind',geminiResult:geminiResult}},'*');
           return;
         } catch(e) {}
+      }
+
+      if (codeType==='figma-script') {
+        if(btn) btn.classList.add('loading');
+        showCode2DesignStatus('Figma 스크립트 실행 중...','info');
+        parent.postMessage({pluginMessage:{type:'execute-figma-script',code:code}},'*');
+        return;
       }
 
       if(btn) btn.classList.add('loading');
