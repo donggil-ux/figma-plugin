@@ -1039,7 +1039,7 @@
 
         <!-- 파일 업로드 모드 -->
         <div id="c2d-file-mode" style="display:none;">
-          <input type="file" id="htmlFileInput" accept=".html,.htm,.css,.js,.jsx,.tsx,.vue,.svg" style="display:none;" />
+          <input type="file" id="htmlFileInput" accept=".html,.htm,.css,.js,.jsx,.tsx,.vue,.svg" style="display:none;" onchange="handleFileUpload(this)" />
           <label for="htmlFileInput" class="file-drop-zone" id="fileUploadArea">
             <div class="file-drop-zone-icon" id="fileDropIcon">☁️</div>
             <div id="fileDropDefault">
@@ -1686,7 +1686,7 @@
         const response = await fetch(url);
         const text = await response.text();
 
-        const jsonString = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*?)\);/);
+        const jsonString = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);/);
         if (!jsonString || !jsonString[1]) {
           console.error(`${sheetName} 시트 응답 파싱 실패`);
           return [];
@@ -1769,7 +1769,9 @@
       // 크리에이터 데이터 업데이트
       if (sheetsData && sheetsData.creator && sheetsData.creator.length > 0) {
         dummyData.creator = mergeAvatarField(sheetsData.creator);
-        console.log('크리에이터 데이터 업데이트 완료, Avatar 포함:', dummyData.creator.some(f => f.isImage));
+        const avatarField = dummyData.creator.find(f => f.isImage);
+        console.log('크리에이터 데이터 업데이트 완료, Avatar URL 개수:', avatarField ? avatarField.values.length : 0);
+        if (avatarField && avatarField.values.length > 0) console.log('첫 번째 Avatar URL:', avatarField.values[0]);
       } else {
         console.log('크리에이터 시트 로드 실패, 기본 데이터 사용');
       }
@@ -1777,7 +1779,9 @@
       // 팬 데이터 업데이트
       if (sheetsData && sheetsData.fan && sheetsData.fan.length > 0) {
         dummyData.fan = mergeAvatarField(sheetsData.fan);
-        console.log('팬 데이터 업데이트 완료, Avatar 포함:', dummyData.fan.some(f => f.isImage));
+        const avatarField = dummyData.fan.find(f => f.isImage);
+        console.log('팬 데이터 업데이트 완료, Avatar URL 개수:', avatarField ? avatarField.values.length : 0);
+        if (avatarField && avatarField.values.length > 0) console.log('첫 번째 팬 Avatar URL:', avatarField.values[0]);
       } else {
         console.log('팬 시트 로드 실패, 기본 데이터 사용');
       }
@@ -2267,82 +2271,53 @@
     }
 
     // ===== HTML 파일 업로드 =====
+    function handleFileUpload(input) {
+      var file = input && input.files && input.files[0];
+      if (!file) return;
+      var reader = new FileReader();
+      reader.onload = function(e) {
+        document.getElementById('codeInput').value = e.target.result;
+        document.getElementById('fileDropIcon').textContent = '✅';
+        document.getElementById('fileDropDefault').style.display = 'none';
+        document.getElementById('fileUploadName').style.display = 'flex';
+        document.getElementById('fileNameText').textContent = file.name;
+        document.getElementById('fileUploadArea').style.borderColor = '#6366F1';
+        document.getElementById('fileUploadArea').style.background = '#F0F0FF';
+      };
+      reader.onerror = function() {
+        document.getElementById('fileDropIcon').textContent = '❌';
+        document.getElementById('fileDropDefault').querySelector('.file-drop-zone-title').textContent = '파일을 읽을 수 없습니다';
+        document.getElementById('fileUploadArea').style.borderColor = '#ef4444';
+      };
+      reader.readAsText(file, 'UTF-8');
+    }
+
     function clearUploadedFile(e) {
       if (e) e.stopPropagation();
       document.getElementById('codeInput').value = '';
       document.getElementById('fileUploadName').style.display = 'none';
       document.getElementById('fileDropDefault').style.display = 'block';
+      document.getElementById('fileDropDefault').querySelector('.file-drop-zone-title').textContent = '클릭하거나 파일을 드래그하세요';
       document.getElementById('fileDropIcon').textContent = '☁️';
-      var area = document.getElementById('fileUploadArea');
-      if (area) { area.style.borderColor = ''; area.style.background = ''; }
-      var inp = document.getElementById('htmlFileInput');
-      if (inp) inp.value = '';
+      document.getElementById('fileUploadArea').style.borderColor = '';
+      document.getElementById('fileUploadArea').style.background = '';
+      document.getElementById('htmlFileInput').value = '';
     }
 
-    (function() {
-      function setDropZoneState(state, label) {
-        var area    = document.getElementById('fileUploadArea');
-        var iconEl  = document.getElementById('fileDropIcon');
-        var defEl   = document.getElementById('fileDropDefault');
-        var nameEl  = document.getElementById('fileUploadName');
-        var nameSpan= document.getElementById('fileNameText');
-        if (!area) return;
-        area.style.borderColor = '';
-        area.style.background  = '';
-        if (state === 'loading') {
-          if (iconEl) iconEl.textContent = '⏳';
-          if (defEl)  { defEl.querySelector('.file-drop-zone-title').textContent = '파일 읽는 중...'; }
-          if (nameEl) nameEl.style.display = 'none';
-          if (defEl)  defEl.style.display = 'block';
-        } else if (state === 'success') {
-          if (iconEl)   iconEl.textContent = '✅';
-          if (nameSpan) nameSpan.textContent = label;
-          if (nameEl)   nameEl.style.display = 'flex';
-          if (defEl)    defEl.style.display = 'none';
-          area.style.borderColor = '#6366F1';
-          area.style.background  = '#F0F0FF';
-        } else if (state === 'error') {
-          if (iconEl) iconEl.textContent = '❌';
-          if (defEl)  { defEl.querySelector('.file-drop-zone-title').textContent = label || '파일 읽기 실패'; defEl.style.display = 'block'; }
-          if (nameEl) nameEl.style.display = 'none';
-          area.style.borderColor = '#ef4444';
-        } else {
-          if (iconEl) iconEl.textContent = '☁️';
-          if (defEl)  { defEl.querySelector('.file-drop-zone-title').textContent = '클릭하거나 파일을 드래그하세요'; defEl.style.display = 'block'; }
-          if (nameEl) nameEl.style.display = 'none';
-        }
-      }
-
-      function loadFile(file) {
+    // 드래그 앤 드롭
+    var _dropArea = document.getElementById('fileUploadArea');
+    if (_dropArea) {
+      _dropArea.addEventListener('dragover', function(e) { e.preventDefault(); _dropArea.classList.add('drag-over'); });
+      _dropArea.addEventListener('dragleave', function() { _dropArea.classList.remove('drag-over'); });
+      _dropArea.addEventListener('drop', function(e) {
+        e.preventDefault(); _dropArea.classList.remove('drag-over');
+        var file = e.dataTransfer.files[0];
         if (!file) return;
-        setDropZoneState('loading');
-        var reader = new FileReader();
-        reader.onload = function(e) {
-          var textarea = document.getElementById('codeInput');
-          if (!textarea) { setDropZoneState('error', '입력 영역을 찾을 수 없음'); return; }
-          textarea.value = e.target.result;
-          setDropZoneState('success', file.name);
-        };
-        reader.onerror = function() {
-          setDropZoneState('error', '파일을 읽을 수 없습니다');
-          showCode2DesignStatus('파일 읽기 실패. 다시 시도해주세요.', 'error');
-        };
-        reader.readAsText(file, 'UTF-8');
-      }
-
-      var input = document.getElementById('htmlFileInput');
-      var area  = document.getElementById('fileUploadArea');
-      if (input) input.addEventListener('change', function() { if (this.files[0]) loadFile(this.files[0]); });
-      if (area) {
-        area.addEventListener('dragover',  function(e) { e.preventDefault(); area.classList.add('drag-over'); });
-        area.addEventListener('dragleave', function()  { area.classList.remove('drag-over'); });
-        area.addEventListener('drop', function(e) {
-          e.preventDefault(); area.classList.remove('drag-over');
-          var file = e.dataTransfer.files[0];
-          if (file) { switchC2DMode('file'); loadFile(file); }
-        });
-      }
-    })();
+        switchC2DMode('file');
+        var fakeInput = { files: [file] };
+        handleFileUpload(fakeInput);
+      });
+    }
 
     function showCode2DesignStatus(message, type) {
       const el = document.getElementById('code2designStatus');
