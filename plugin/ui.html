@@ -2345,7 +2345,10 @@
         var cr2=c2dParseBorderRadius(style); if(cr2) node.cornerRadius=cr2;
         var border2=c2dParseBorder(style); if(border2){node.strokeColor=border2.color;node.strokeWeight=border2.width;}
         node.layoutMode='NONE'; node.children=[];
-        var valText=el.value||el.placeholder||(el.innerText||el.textContent||'').trim();
+        // INPUT/TEXTAREA: use value/placeholder; BUTTON/SELECT: use visible innerText
+        var valText=(tagUpper==='INPUT'||tagUpper==='TEXTAREA')
+          ? (el.value||el.placeholder||'')
+          : (el.innerText||el.textContent||'').trim();
         if (valText.trim()) {
           node.children.push({type:'text',name:'label',content:valText.trim(),
             fontSize:parseFloat(style.fontSize)||14,
@@ -2442,8 +2445,8 @@
     }
 
     function stripCodeFences(code) {
-      // Remove markdown code fences: ```html, ```css, ```jsx, ```tsx, etc.
-      return code.replace(/^```(?:html|css|jsx?|tsx?|vue|svelte|markup|xml)?\s*\n?/i, '').replace(/\n?```\s*$/,'').trim();
+      // Remove markdown code fences: ```html, ```css, ```json, ```jsx, ```tsx, etc.
+      return code.replace(/^```(?:html|css|json|jsx?|tsx?|vue|svelte|markup|xml)?\s*\n?/i, '').replace(/\n?```\s*$/,'').trim();
     }
 
     function detectCodeType(code) {
@@ -2453,6 +2456,8 @@
       return 'html';
     }
 
+    var _c2dGenId = 0; // generation counter to prevent stale timeout race conditions
+
     function generateDesign() {
       var btn=document.getElementById('generateDesignBtn');
       var code=(document.getElementById('codeInput')||{}).value;
@@ -2460,6 +2465,7 @@
       // Strip markdown code fences that Claude often wraps code in
       code=stripCodeFences(code.trim());
       var codeType=detectCodeType(code);
+      var genId = ++_c2dGenId; // unique ID for this generation call
 
       if (codeType==='json') {
         try {
@@ -2478,12 +2484,14 @@
         var srcdoc=(codeType==='tailwind')?buildSrcdocTailwind(code):buildSrcdocHTML(code);
         var iframe=document.getElementById('renderFrame');
         var renderTimeout=setTimeout(function(){
+          if (genId !== _c2dGenId) return; // stale: a newer generation superseded this one
           window.removeEventListener('message', c2dReadyHandler);
           if(btn) btn.classList.remove('loading');
           showCode2DesignStatus('렌더링 시간 초과. 코드를 확인해주세요.','error');
         },15000);
 
         function captureDesign() {
+          if (genId !== _c2dGenId) return; // stale: a newer generation superseded this one
           clearTimeout(renderTimeout);
           window.removeEventListener('message', c2dReadyHandler);
           try {
