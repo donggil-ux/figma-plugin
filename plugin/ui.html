@@ -901,20 +901,30 @@
 
     /* Code2Design 탭 스타일 */
     .code-input-section { margin-bottom: 16px; }
-    .file-upload-area {
-      border: 1.5px dashed #D7D8E5; border-radius: 10px;
-      padding: 12px 16px; margin-bottom: 10px;
-      display: flex; align-items: center; gap: 10px;
-      background: #F8F8FC; cursor: pointer; transition: border-color 0.15s, background 0.15s;
+    /* Code2Design 모드 탭 */
+    .c2d-mode-tabs { display: flex; margin-bottom: 14px; border-radius: 10px; overflow: hidden; border: 1px solid #D7D8E5; }
+    .c2d-mode-tab { flex: 1; padding: 9px 8px; font-size: 12px; font-weight: 600; border: none; background: #F8F8FC; color: #838499; cursor: pointer; transition: background 0.15s, color 0.15s; }
+    .c2d-mode-tab:first-child { border-right: 1px solid #D7D8E5; }
+    .c2d-mode-tab.active { background: #6366F1; color: #fff; }
+    /* 파일 드롭존 */
+    .file-drop-zone {
+      border: 1.5px dashed #D7D8E5; border-radius: 12px;
+      padding: 32px 20px; margin-bottom: 14px;
+      display: flex; flex-direction: column; align-items: center; justify-content: center; gap: 8px;
+      background: #F8F8FC; cursor: pointer; transition: border-color 0.15s, background 0.15s; text-align: center;
     }
-    .file-upload-area:hover, .file-upload-area.drag-over {
-      border-color: #6366F1; background: #F0F0FF;
-    }
-    .file-upload-area input[type="file"] { display: none; }
-    .file-upload-icon { font-size: 18px; flex-shrink: 0; }
-    .file-upload-text { font-size: 12px; color: #6B6B6B; flex: 1; }
-    .file-upload-text strong { color: #6366F1; }
-    .file-upload-name { font-size: 11px; color: #6366F1; font-weight: 600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-drop-zone:hover, .file-drop-zone.drag-over { border-color: #6366F1; background: #F0F0FF; }
+    .file-drop-zone input[type="file"] { display: none; }
+    .file-drop-zone-icon { font-size: 32px; line-height: 1; margin-bottom: 4px; }
+    .file-drop-zone-title { font-size: 13px; font-weight: 600; color: #110f1a; }
+    .file-drop-zone-sub { font-size: 11px; color: #838499; }
+    .file-drop-zone-name { display: flex; align-items: center; gap: 8px; background: #EEF2FF; border-radius: 8px; padding: 8px 12px; width: 100%; }
+    .file-drop-zone-name span { font-size: 12px; font-weight: 600; color: #6366F1; flex: 1; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
+    .file-drop-zone-name button { background: none; border: none; color: #838499; cursor: pointer; font-size: 13px; padding: 0; flex-shrink: 0; }
+    .file-drop-zone-name button:hover { color: #ef4444; }
+    /* 레거시 (제거 예정) */
+    .file-upload-area { display: none; }
+    .file-upload-icon, .file-upload-text, .file-upload-name { display: none; }
     .code-textarea {
       width: 100%; height: 320px; padding: 12px;
       border: 1px solid #D7D8E5; border-radius: 12px;
@@ -1002,14 +1012,15 @@
     <div class="main-content">
       <div class="card">
         <h2 class="card-title">Code → Figma Design</h2>
-        <div class="code-input-section">
-          <label class="input-label">HTML 코드를 붙여넣거나 파일을 업로드하세요</label>
-          <div class="file-upload-area" id="fileUploadArea" onclick="document.getElementById('htmlFileInput').click()">
-            <input type="file" id="htmlFileInput" accept=".html,.htm,.css,.js,.jsx,.tsx,.vue,.svg" />
-            <span class="file-upload-icon">📂</span>
-            <span class="file-upload-text" id="fileUploadText"><strong>파일 선택</strong> 또는 여기에 드래그</span>
-            <span class="file-upload-name" id="fileUploadName" style="display:none;"></span>
-          </div>
+
+        <!-- 모드 탭 -->
+        <div class="c2d-mode-tabs">
+          <button class="c2d-mode-tab active" id="c2dTabPaste" onclick="switchC2DMode('paste')">✏️ 코드 붙여넣기</button>
+          <button class="c2d-mode-tab" id="c2dTabFile" onclick="switchC2DMode('file')">📁 파일 업로드</button>
+        </div>
+
+        <!-- 코드 붙여넣기 모드 -->
+        <div id="c2d-paste-mode">
           <textarea class="code-textarea" id="codeInput" placeholder="<!DOCTYPE html>
 <html>
 <head>
@@ -1025,6 +1036,23 @@
 // Claude가 생성한 HTML 코드를 그대로 붙여넣으면
 // 자동으로 Figma 디자인이 생성됩니다"></textarea>
         </div>
+
+        <!-- 파일 업로드 모드 -->
+        <div id="c2d-file-mode" style="display:none;">
+          <div class="file-drop-zone" id="fileUploadArea" onclick="document.getElementById('htmlFileInput').click()">
+            <input type="file" id="htmlFileInput" accept=".html,.htm,.css,.js,.jsx,.tsx,.vue,.svg" />
+            <div class="file-drop-zone-icon" id="fileDropIcon">☁️</div>
+            <div id="fileDropDefault">
+              <div class="file-drop-zone-title">클릭하거나 파일을 드래그하세요</div>
+              <div class="file-drop-zone-sub">.html · .css · .js · .jsx · .tsx · .vue · .svg</div>
+            </div>
+            <div class="file-drop-zone-name" id="fileUploadName" style="display:none;">
+              <span id="fileNameText"></span>
+              <button onclick="clearUploadedFile(event)">✕</button>
+            </div>
+          </div>
+        </div>
+
         <div class="button-group">
           <button class="btn btn-primary" id="generateDesignBtn" onclick="generateDesign()">
             <span class="btn-text">🎨 Figma 디자인 생성</span>
@@ -1488,11 +1516,24 @@
       }
 
       if (msg.type === 'fetch-image') {
+        const CLOUD_PROXY = 'https://likey-figma-proxy.onrender.com';
+        const LOCAL_PROXY = 'http://localhost:7777';
+        const proxyUrl = (base, url) => `${base}/proxy-image?url=${encodeURIComponent(url)}`;
+
+        // 직접 fetch → 클라우드 프록시 → 로컬 프록시 순서로 시도
         fetch(msg.url)
           .then(r => {
-            if (!r.ok) throw new Error(`HTTP ${r.status} ${r.statusText}`);
+            if (!r.ok) throw new Error(`HTTP ${r.status}`);
             return r.arrayBuffer();
           })
+          .catch(() => fetch(proxyUrl(CLOUD_PROXY, msg.url)).then(r => {
+            if (!r.ok) throw new Error(`Proxy HTTP ${r.status}`);
+            return r.arrayBuffer();
+          }))
+          .catch(() => fetch(proxyUrl(LOCAL_PROXY, msg.url)).then(r => {
+            if (!r.ok) throw new Error(`Local proxy HTTP ${r.status}`);
+            return r.arrayBuffer();
+          }))
           .then(buffer => {
             parent.postMessage({
               pluginMessage: {
@@ -2217,48 +2258,73 @@
       return Array.from(bytes);
     }
 
+    // ===== Code2Design 모드 전환 =====
+    function switchC2DMode(mode) {
+      document.getElementById('c2d-paste-mode').style.display = mode === 'paste' ? 'block' : 'none';
+      document.getElementById('c2d-file-mode').style.display  = mode === 'file'  ? 'block' : 'none';
+      document.getElementById('c2dTabPaste').classList.toggle('active', mode === 'paste');
+      document.getElementById('c2dTabFile').classList.toggle('active',  mode === 'file');
+    }
+
     // ===== HTML 파일 업로드 =====
+    function clearUploadedFile(e) {
+      if (e) e.stopPropagation();
+      document.getElementById('codeInput').value = '';
+      document.getElementById('fileUploadName').style.display = 'none';
+      document.getElementById('fileDropDefault').style.display = 'block';
+      document.getElementById('fileDropIcon').textContent = '☁️';
+      var area = document.getElementById('fileUploadArea');
+      if (area) { area.style.borderColor = ''; area.style.background = ''; }
+      var inp = document.getElementById('htmlFileInput');
+      if (inp) inp.value = '';
+    }
+
     (function() {
-      function setUploadState(state, label) {
-        var area   = document.getElementById('fileUploadArea');
-        var iconEl = document.querySelector('#fileUploadArea .file-upload-icon');
-        var textEl = document.getElementById('fileUploadText');
-        var nameEl = document.getElementById('fileUploadName');
+      function setDropZoneState(state, label) {
+        var area    = document.getElementById('fileUploadArea');
+        var iconEl  = document.getElementById('fileDropIcon');
+        var defEl   = document.getElementById('fileDropDefault');
+        var nameEl  = document.getElementById('fileUploadName');
+        var nameSpan= document.getElementById('fileNameText');
         if (!area) return;
         area.style.borderColor = '';
+        area.style.background  = '';
         if (state === 'loading') {
           if (iconEl) iconEl.textContent = '⏳';
-          if (textEl) { textEl.innerHTML = '<strong>파일 읽는 중...</strong>'; textEl.style.display = 'block'; }
+          if (defEl)  { defEl.querySelector('.file-drop-zone-title').textContent = '파일 읽는 중...'; }
           if (nameEl) nameEl.style.display = 'none';
+          if (defEl)  defEl.style.display = 'block';
         } else if (state === 'success') {
-          if (iconEl) iconEl.textContent = '✅';
-          if (nameEl) { nameEl.textContent = label; nameEl.style.display = 'block'; }
-          if (textEl) textEl.style.display = 'none';
+          if (iconEl)   iconEl.textContent = '✅';
+          if (nameSpan) nameSpan.textContent = label;
+          if (nameEl)   nameEl.style.display = 'flex';
+          if (defEl)    defEl.style.display = 'none';
           area.style.borderColor = '#6366F1';
+          area.style.background  = '#F0F0FF';
         } else if (state === 'error') {
           if (iconEl) iconEl.textContent = '❌';
-          if (textEl) { textEl.innerHTML = '<strong style="color:#ef4444">' + (label || '파일 읽기 실패') + '</strong>'; textEl.style.display = 'block'; }
+          if (defEl)  { defEl.querySelector('.file-drop-zone-title').textContent = label || '파일 읽기 실패'; defEl.style.display = 'block'; }
           if (nameEl) nameEl.style.display = 'none';
           area.style.borderColor = '#ef4444';
         } else {
-          if (iconEl) iconEl.textContent = '📂';
-          if (textEl) { textEl.innerHTML = '<strong>파일 선택</strong> 또는 여기에 드래그'; textEl.style.display = 'block'; }
+          if (iconEl) iconEl.textContent = '☁️';
+          if (defEl)  { defEl.querySelector('.file-drop-zone-title').textContent = '클릭하거나 파일을 드래그하세요'; defEl.style.display = 'block'; }
           if (nameEl) nameEl.style.display = 'none';
         }
       }
 
       function loadFile(file) {
         if (!file) return;
-        setUploadState('loading');
+        setDropZoneState('loading');
         var reader = new FileReader();
         reader.onload = function(e) {
           var textarea = document.getElementById('codeInput');
-          if (!textarea) { setUploadState('error', '입력 영역을 찾을 수 없음'); return; }
+          if (!textarea) { setDropZoneState('error', '입력 영역을 찾을 수 없음'); return; }
           textarea.value = e.target.result;
-          setUploadState('success', file.name);
+          setDropZoneState('success', file.name);
         };
         reader.onerror = function() {
-          setUploadState('error', '파일을 읽을 수 없습니다');
+          setDropZoneState('error', '파일을 읽을 수 없습니다');
           showCode2DesignStatus('파일 읽기 실패. 다시 시도해주세요.', 'error');
         };
         reader.readAsText(file, 'UTF-8');
@@ -2273,7 +2339,7 @@
         area.addEventListener('drop', function(e) {
           e.preventDefault(); area.classList.remove('drag-over');
           var file = e.dataTransfer.files[0];
-          if (file) loadFile(file);
+          if (file) { switchC2DMode('file'); loadFile(file); }
         });
       }
     })();
