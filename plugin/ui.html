@@ -1528,18 +1528,41 @@
           return buf.buffer;
         }
 
-        // 직접 fetch → Apps Script 프록시 → 클라우드 프록시 → 로컬 프록시 순서로 시도
+        // Apps Script JSONP 이미지 프록시 (null origin CORS 우회)
+        function fetchImageViaAppsScript(imageUrl) {
+          return new Promise((resolve, reject) => {
+            const cbName = '_asImg_' + Date.now() + '_' + ((Math.random() * 1e9) | 0);
+            const sc = document.createElement('script');
+            const timer = setTimeout(() => {
+              cleanup();
+              reject(new Error('AS timeout'));
+            }, 30000);
+            function cleanup() {
+              clearTimeout(timer);
+              try { delete window[cbName]; } catch(_) { window[cbName] = undefined; }
+              if (sc.parentNode) sc.parentNode.removeChild(sc);
+            }
+            window[cbName] = function(json) {
+              cleanup();
+              if (!json) { reject(new Error('AS empty response')); return; }
+              if (json.error) { reject(new Error(json.error)); return; }
+              if (!json.data) { reject(new Error('AS no data')); return; }
+              try { resolve(b64ToBuffer(json.data)); }
+              catch(e) { reject(e); }
+            };
+            sc.src = `${APPS_SCRIPT_URL}?action=image&url=${encodeURIComponent(imageUrl)}&callback=${cbName}`;
+            sc.onerror = () => { cleanup(); reject(new Error('AS script load failed')); };
+            document.head.appendChild(sc);
+          });
+        }
+
+        // 직접 fetch → Apps Script JSONP 프록시 → 클라우드 프록시 → 로컬 프록시 순서로 시도
         fetch(msg.url)
           .then(r => {
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             return r.arrayBuffer();
           })
-          .catch(() =>
-            // Apps Script 이미지 프록시 (Referer 헤더 포함, 인증 우회)
-            fetch(`${APPS_SCRIPT_URL}?action=image&url=${encodeURIComponent(msg.url)}`)
-              .then(r => { if (!r.ok) throw new Error(`AS HTTP ${r.status}`); return r.json(); })
-              .then(json => { if (json.error) throw new Error(json.error); return b64ToBuffer(json.data); })
-          )
+          .catch(() => fetchImageViaAppsScript(msg.url))
           .catch(() => fetch(proxyUrl(CLOUD_PROXY, msg.url)).then(r => {
             if (!r.ok) throw new Error(`Proxy HTTP ${r.status}`);
             return r.arrayBuffer();
@@ -1627,7 +1650,7 @@
     // Google Sheets 설정
     const SHEET_ID = '1rIL8PgwluzLLt2-9hkWbSCa1-lOu3OnWsRTj6Yd_9ks';
     const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json`;
-    const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwq2fuwV6Pucpa27pc2kx1rYIpJMy_aqfDvaVHbRjQrcw73K_DgBtr1XRsyJL14w6_R/exec';
+    const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxW3AyEkr0ju_WSwbPiHwSdvqFBgejNw8u4iOik42QfJ532aPRNkWQVqPwdEEOZI2VO/exec';
 
     // 기본 더미 데이터 (Google Sheets 로드 실패 시 사용)
     // 시트 구조: 각 열이 필드명, 각 행이 데이터
@@ -1736,20 +1759,39 @@
       return out;
     }
 
+    // Apps Script JSONP (null origin CORS 우회)
+    function loadSheetDataAppsScript(sheetName) {
+      return new Promise((resolve, reject) => {
+        const cbName = '_asSheet_' + Date.now() + '_' + ((Math.random() * 1e9) | 0);
+        const sc = document.createElement('script');
+        const timer = setTimeout(() => {
+          cleanup();
+          reject(new Error('Apps Script timeout'));
+        }, 15000);
+        function cleanup() {
+          clearTimeout(timer);
+          try { delete window[cbName]; } catch(_) { window[cbName] = undefined; }
+          if (sc.parentNode) sc.parentNode.removeChild(sc);
+        }
+        window[cbName] = function(json) {
+          cleanup();
+          if (!json) { reject(new Error('empty response')); return; }
+          if (json.error) { reject(new Error(json.error)); return; }
+          if (!json.rows || json.rows.length === 0) { reject(new Error('빈 데이터')); return; }
+          resolve(json);
+        };
+        sc.src = `${APPS_SCRIPT_URL}?action=sheet&sheet=${encodeURIComponent(sheetName)}&callback=${cbName}&_=${Date.now()}`;
+        sc.onerror = () => { cleanup(); reject(new Error('Apps Script script load failed')); };
+        document.head.appendChild(sc);
+      });
+    }
+
     // Google Sheets에서 특정 시트 데이터 불러오기
-    // 우선순위: Apps Script → JSONP → CSV 폴백
+    // 우선순위: Apps Script (JSONP) → gviz JSONP → CSV 폴백
     function loadSheetData(sheetName) {
-      // 1순위: Apps Script (가장 안정적, CORS 없음)
-      return fetch(`${APPS_SCRIPT_URL}?action=sheet&sheet=${encodeURIComponent(sheetName)}&_=${Date.now()}`)
-        .then(r => {
-          if (!r.ok) throw new Error(`HTTP ${r.status}`);
-          return r.json();
-        })
+      return loadSheetDataAppsScript(sheetName)
         .then(json => {
-          if (json.error) throw new Error(json.error);
-          if (!json.rows || json.rows.length === 0) throw new Error('빈 데이터');
           console.log(`[Sheet ${sheetName}] Apps Script 로드 성공: ${json.rows.length}행`);
-          // { headers, rows } → [{ name, desc, values }] 형식으로 변환
           const headers = json.headers;
           const result = headers.map(header => {
             if (!header) return null;
@@ -1762,7 +1804,7 @@
           return result;
         })
         .catch(err => {
-          console.warn(`[Sheet ${sheetName}] Apps Script 실패(${err.message}), JSONP 시도`);
+          console.warn(`[Sheet ${sheetName}] Apps Script 실패(${err.message}), gviz JSONP 시도`);
           return loadSheetDataJsonp(sheetName);
         });
     }
