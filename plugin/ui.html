@@ -1520,12 +1520,26 @@
         const LOCAL_PROXY = 'http://localhost:7777';
         const proxyUrl = (base, url) => `${base}/proxy-image?url=${encodeURIComponent(url)}`;
 
-        // 직접 fetch → 클라우드 프록시 → 로컬 프록시 순서로 시도
+        // base64 → ArrayBuffer 변환 헬퍼
+        function b64ToBuffer(b64) {
+          const bin = atob(b64);
+          const buf = new Uint8Array(bin.length);
+          for (let i = 0; i < bin.length; i++) buf[i] = bin.charCodeAt(i);
+          return buf.buffer;
+        }
+
+        // 직접 fetch → Apps Script 프록시 → 클라우드 프록시 → 로컬 프록시 순서로 시도
         fetch(msg.url)
           .then(r => {
             if (!r.ok) throw new Error(`HTTP ${r.status}`);
             return r.arrayBuffer();
           })
+          .catch(() =>
+            // Apps Script 이미지 프록시 (Referer 헤더 포함, 인증 우회)
+            fetch(`${APPS_SCRIPT_URL}?action=image&url=${encodeURIComponent(msg.url)}`)
+              .then(r => { if (!r.ok) throw new Error(`AS HTTP ${r.status}`); return r.json(); })
+              .then(json => { if (json.error) throw new Error(json.error); return b64ToBuffer(json.data); })
+          )
           .catch(() => fetch(proxyUrl(CLOUD_PROXY, msg.url)).then(r => {
             if (!r.ok) throw new Error(`Proxy HTTP ${r.status}`);
             return r.arrayBuffer();
@@ -1613,7 +1627,7 @@
     // Google Sheets 설정
     const SHEET_ID = '1rIL8PgwluzLLt2-9hkWbSCa1-lOu3OnWsRTj6Yd_9ks';
     const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json`;
-    const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxbXzVxjCYLVuKsJv6V9WupI5EeWWUimWsl5Zf6gYBnoKMAWJ7nMDFJ46Wr1dxjM7hV/exec';
+    const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbwq2fuwV6Pucpa27pc2kx1rYIpJMy_aqfDvaVHbRjQrcw73K_DgBtr1XRsyJL14w6_R/exec';
 
     // 기본 더미 데이터 (Google Sheets 로드 실패 시 사용)
     // 시트 구조: 각 열이 필드명, 각 행이 데이터
