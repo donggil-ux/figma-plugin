@@ -1050,51 +1050,71 @@ async function randomFillData(category, data) {
     return;
   }
 
-  // 데이터 필드 이름 목록 생성 (대소문자 무시 비교를 위해)
-  // 각 필드별로 현재 인덱스를 관리하여 순서대로 데이터 적용
+  // 1. 텍스트 필드 처리 (이미지 필드 제외)
   const fieldMap = {};
   for (const field of data) {
-    fieldMap[field.name.toLowerCase()] = {
-      name: field.name,
-      desc: field.desc,
-      values: field.values,
-      currentIndex: 0  // 순서대로 적용을 위한 인덱스
-    };
+    if (!field.isImage) {
+      fieldMap[field.name.toLowerCase()] = {
+        name: field.name,
+        desc: field.desc,
+        values: field.values,
+        currentIndex: 0
+      };
+    }
   }
 
-  let changed = 0;
-  let matched = 0;
+  let textChanged = 0;
+  let textMatched = 0;
 
   for (const node of selection) {
-    // 선택된 노드와 모든 하위 노드 탐색
     const result = await fillMatchingLayersSequential(node, fieldMap);
-    changed += result.changed;
-    matched += result.matched;
+    textChanged += result.changed;
+    textMatched += result.matched;
   }
 
-  if (matched === 0) {
+  // 2. 이미지 필드 처리 (Avatar Image 등)
+  const imageFields = data.filter(f => f.isImage);
+  const imageFills = [];
+
+  for (const field of imageFields) {
+    const nodes = findImageNodesByName(selection, field.name);
+    for (let i = 0; i < nodes.length; i++) {
+      const urlList = (field.values && field.values.length > 0)
+        ? field.values
+        : Array.from({ length: nodes.length }, (_, j) => `https://i.pravatar.cc/200?img=${(j % 70) + 1}`);
+      imageFills.push({ nodeId: nodes[i].id, url: urlList[i % urlList.length] });
+    }
+  }
+
+  const hasImages = imageFills.length > 0;
+
+  if (textMatched === 0 && !hasImages) {
     figma.ui.postMessage({
       type: 'data-fill-status',
       status: 'error',
-      message: '일치하는 레이어 이름이 없습니다. 레이어 이름을 데이터 필드명(예: CreatorName, FollowersText)과 동일하게 설정해주세요.'
+      message: '일치하는 레이어 이름이 없습니다. 레이어 이름을 데이터 필드명과 동일하게 설정해주세요.'
     });
     return;
   }
 
-  if (changed === 0) {
+  if (!hasImages) {
+    // 이미지 없음 → 텍스트 결과 보고
     figma.ui.postMessage({
       type: 'data-fill-status',
-      status: 'error',
-      message: '선택된 영역에 텍스트가 없습니다.'
+      status: textChanged > 0 ? 'success' : 'error',
+      message: textChanged > 0
+        ? `${textMatched}개 레이어에 데이터를 순서대로 적용했습니다.`
+        : '선택된 영역에 텍스트가 없습니다.'
     });
     return;
   }
 
-  figma.ui.postMessage({
-    type: 'data-fill-status',
-    status: 'success',
-    message: `${matched}개의 일치 레이어에서 ${changed}개의 텍스트에 데이터를 순서대로 적용했습니다.`
-  });
+  // 이미지 fetch 시작 (완료 시 applyImageData가 data-fill-status 전송)
+  pendingImageCount = imageFills.length;
+  appliedImageCount = 0;
+  for (const fill of imageFills) {
+    figma.ui.postMessage({ type: 'fetch-image', url: fill.url, nodeId: fill.nodeId });
+  }
 }
 
 // 레이어 이름과 데이터 필드 이름이 일치하는 경우에만 순서대로 데이터 적용
