@@ -1613,6 +1613,7 @@
     // Google Sheets 설정
     const SHEET_ID = '1rIL8PgwluzLLt2-9hkWbSCa1-lOu3OnWsRTj6Yd_9ks';
     const SHEET_URL = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json`;
+    const APPS_SCRIPT_URL = 'https://script.google.com/macros/s/AKfycbxbXzVxjCYLVuKsJv6V9WupI5EeWWUimWsl5Zf6gYBnoKMAWJ7nMDFJ46Wr1dxjM7hV/exec';
 
     // 기본 더미 데이터 (Google Sheets 로드 실패 시 사용)
     // 시트 구조: 각 열이 필드명, 각 행이 데이터
@@ -1721,8 +1722,39 @@
       return out;
     }
 
-    // Google Sheets에서 특정 시트 데이터 불러오기 (JSONP - CORS 우회)
+    // Google Sheets에서 특정 시트 데이터 불러오기
+    // 우선순위: Apps Script → JSONP → CSV 폴백
     function loadSheetData(sheetName) {
+      // 1순위: Apps Script (가장 안정적, CORS 없음)
+      return fetch(`${APPS_SCRIPT_URL}?action=sheet&sheet=${encodeURIComponent(sheetName)}&_=${Date.now()}`)
+        .then(r => {
+          if (!r.ok) throw new Error(`HTTP ${r.status}`);
+          return r.json();
+        })
+        .then(json => {
+          if (json.error) throw new Error(json.error);
+          if (!json.rows || json.rows.length === 0) throw new Error('빈 데이터');
+          console.log(`[Sheet ${sheetName}] Apps Script 로드 성공: ${json.rows.length}행`);
+          // { headers, rows } → [{ name, desc, values }] 형식으로 변환
+          const headers = json.headers;
+          const result = headers.map(header => {
+            if (!header) return null;
+            const values = json.rows
+              .map(row => (row[header] != null && row[header] !== '') ? String(row[header]) : null)
+              .filter(v => v !== null);
+            return { name: header, desc: header, values };
+          }).filter(Boolean);
+          console.log(`[Sheet ${sheetName}] 파싱 완료:`, result.map(f => `${f.name}(${f.values.length})`).join(', '));
+          return result;
+        })
+        .catch(err => {
+          console.warn(`[Sheet ${sheetName}] Apps Script 실패(${err.message}), JSONP 시도`);
+          return loadSheetDataJsonp(sheetName);
+        });
+    }
+
+    // 2순위: JSONP (Apps Script 실패 시)
+    function loadSheetDataJsonp(sheetName) {
       return new Promise((resolve) => {
         const cbName = '_gviz_' + Date.now() + '_' + (Math.random() * 1e9 | 0);
         const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json;responseHandler:${cbName}&headers=1&sheet=${encodeURIComponent(sheetName)}&_=${Date.now()}`;
@@ -1730,7 +1762,7 @@
 
         const timer = setTimeout(() => {
           cleanup();
-          console.error(`[Sheet ${sheetName}] JSONP 타임아웃 (10s) - 시트가 '링크가 있는 모든 사용자' 로 공유되어 있는지, 네이티브 Google Sheet (xlsx가 아님) 인지 확인하세요.`);
+          console.error(`[Sheet ${sheetName}] JSONP 타임아웃 (10s)`);
           tryCsvFallback(sheetName).then(resolve);
         }, 10000);
 
@@ -1755,7 +1787,7 @@
         script.src = url;
         script.onerror = (e) => {
           cleanup();
-          console.error(`[Sheet ${sheetName}] JSONP 스크립트 로드 실패 - 시트 공개 설정 또는 SHEET_ID를 확인하세요.`, e);
+          console.error(`[Sheet ${sheetName}] JSONP 스크립트 로드 실패`, e);
           tryCsvFallback(sheetName).then(resolve);
         };
         document.head.appendChild(script);
