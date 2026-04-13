@@ -134,7 +134,7 @@ figma.ui.onmessage = async (msg) => {
 
   // 이미지 채우기 (UI 스레드에서 fetch 후 데이터 전달)
   if (msg.type === 'apply-image-fill') {
-    startImageFill(msg.imageType, msg.fieldName);
+    startImageFill(msg.imageType, msg.fieldName, msg.imageUrls || []);
   }
 
   // UI에서 이미지 데이터 수신 후 적용 (단일)
@@ -1144,7 +1144,8 @@ async function fillMatchingLayersSequential(node, fieldMap) {
 let pendingImageCount = 0;
 let appliedImageCount = 0;
 
-function startImageFill(imageType, fieldName) {
+function startImageFill(imageType, fieldName, imageUrls) {
+  imageUrls = imageUrls || [];
   const selection = figma.currentPage.selection;
 
   if (selection.length === 0) {
@@ -1179,36 +1180,19 @@ function startImageFill(imageType, fieldName) {
   appliedImageCount = 0;
 
   if (imageType === 'profile') {
-    // Canvas/네트워크 없이 직접 단색 채우기 (신뢰성 최우선)
-    const AVATAR_COLORS = [
-      '#FF6B6B','#FF9F43','#FECA57','#48DBFB','#1DD1A1',
-      '#54A0FF','#5F27CD','#FF9FF3','#00D2D3','#576574'
-    ];
-    let colorIdx = 0;
-    let applyError = null;
-    for (const node of fillableNodes) {
-      const hex = AVATAR_COLORS[colorIdx % AVATAR_COLORS.length];
-      colorIdx++;
-      if (!('fills' in node)) { applyError = `fills 미지원: ${node.type}`; pendingImageCount--; continue; }
-      if ('locked' in node && node.locked) { applyError = `레이어 잠김: "${node.name}"`; pendingImageCount--; continue; }
-      try {
-        const rgb = hexToFigmaRgb(hex);
-        node.fills = [{ type: 'SOLID', color: { r: rgb.r, g: rgb.g, b: rgb.b } }];
-        appliedImageCount++;
-      } catch (e) {
-        applyError = e.message || String(e);
-      }
-      pendingImageCount--;
-    }
-    figma.ui.postMessage({
-      type: 'data-fill-status',
-      status: appliedImageCount > 0 ? 'success' : 'error',
-      message: appliedImageCount > 0
-        ? `${appliedImageCount}개 레이어에 아바타 색상 적용 완료`
-        : `적용 실패: ${applyError || '알 수 없는 오류'}`
-    });
-    pendingImageCount = 0;
+    // 시트에서 로드한 실제 아바타 이미지 URL 사용; 없으면 pravatar.cc 폴백
+    const urlList = imageUrls.length > 0
+      ? imageUrls
+      : Array.from({ length: fillableNodes.length }, (_, i) =>
+          `https://i.pravatar.cc/200?img=${(i % 70) + 1}`
+        );
+    pendingImageCount = fillableNodes.length;
     appliedImageCount = 0;
+    for (let i = 0; i < fillableNodes.length; i++) {
+      const node = fillableNodes[i];
+      const url = urlList[i % urlList.length];
+      figma.ui.postMessage({ type: 'fetch-image', url: url, nodeId: node.id });
+    }
     return;
   } else {
     for (const node of fillableNodes) {

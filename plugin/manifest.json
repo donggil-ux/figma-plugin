@@ -9,9 +9,13 @@
     "allowedDomains": [
       "https://m.search.naver.com",
       "https://docs.google.com",
+      "https://drive.google.com",
+      "https://lh3.googleusercontent.com",
+      "https://static.likeycontents.xyz",
       "https://randomuser.me",
       "https://i.pravatar.cc",
       "https://picsum.photos",
+      "https://likey-figma-proxy.onrender.com",
       "https://cdn.tailwindcss.com",
       "http://localhost:7777"
     ],
