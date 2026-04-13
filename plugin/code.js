@@ -1198,10 +1198,20 @@ function findImageNodesByName(selection, fieldName) {
 
 // UI 스레드에서 받은 이미지 데이터를 노드에 적용
 function applyImageData(nodeId, data) {
-  try {
-    if (data && data.length > 0) {
-      const node = figma.getNodeById(nodeId);
-      if (node && 'fills' in node) {
+  let applyError = null;
+
+  if (!data || data.length === 0) {
+    applyError = '이미지 데이터 없음';
+  } else {
+    const node = figma.getNodeById(nodeId);
+    if (!node) {
+      applyError = `노드 없음 (id: ${nodeId})`;
+    } else if (!('fills' in node)) {
+      applyError = `fills 미지원 타입: ${node.type}`;
+    } else if ('locked' in node && node.locked) {
+      applyError = `레이어 잠김: "${node.name}" — 잠금 해제 후 재시도`;
+    } else {
+      try {
         const image = figma.createImage(new Uint8Array(data));
         const currentFills = node.fills;
         let newFills;
@@ -1224,9 +1234,11 @@ function applyImageData(nodeId, data) {
 
         node.fills = newFills;
         appliedImageCount++;
+      } catch (e) {
+        applyError = e.message || String(e);
       }
     }
-  } catch (e) {}
+  }
 
   pendingImageCount--;
   if (pendingImageCount <= 0) {
@@ -1235,57 +1247,84 @@ function applyImageData(nodeId, data) {
       type: 'data-fill-status',
       status: success ? 'success' : 'error',
       message: success
-        ? `${appliedImageCount}개의 레이어에 이미지를 적용했습니다.`
-        : '이미지 fetch 실패 — Figma 콘솔에서 [Avatar] 로그를 확인해주세요.'
+        ? `${appliedImageCount}개 레이어에 아바타 이미지 적용 완료`
+        : `적용 실패: ${applyError || '알 수 없는 오류'}`
     });
     pendingImageCount = 0;
     appliedImageCount = 0;
   }
 }
 
-// 이미지 Fill을 적용할 수 있는 노드 찾기
+// 이미지 Fill을 적용할 수 있는 노드 찾기 (3단계 우선순위)
 function findFillableNodes(selection) {
-  const fillableNodes = [];
+  const KEYWORDS = ['avatar', 'profile', 'image', 'photo', 'thumbnail', 'img'];
 
-  function collectFillable(node) {
-    const nameLower = node.name.toLowerCase();
-    const isLikelyImageLayer = nameLower.includes('avatar') ||
-                               nameLower.includes('profile') ||
-                               nameLower.includes('image') ||
-                               nameLower.includes('photo') ||
-                               nameLower.includes('thumbnail') ||
-                               nameLower.includes('img');
-
-    if ('fills' in node) {
-      try {
-        const fills = node.fills;
-        if (fills !== figma.mixed && Array.isArray(fills)) {
-          if (fills.some(f => f.type === 'IMAGE')) {
-            fillableNodes.push(node);
-            return;
-          }
-          if (isLikelyImageLayer && (
-              node.type === 'RECTANGLE' || node.type === 'ELLIPSE' ||
-              node.type === 'FRAME'     || node.type === 'POLYGON' ||
-              node.type === 'VECTOR')) {
-            fillableNodes.push(node);
-            return;
-          }
-        }
-      } catch (e) {}
-    }
-
-    if (node.type === 'RECTANGLE' || node.type === 'ELLIPSE') {
-      fillableNodes.push(node);
-    }
-
-    if ('children' in node && node.children) {
-      for (const child of node.children) collectFillable(child);
-    }
+  function hasKeyword(name) {
+    const n = name.toLowerCase();
+    return KEYWORDS.some(k => n.includes(k));
   }
 
-  for (const node of selection) collectFillable(node);
-  return fillableNodes;
+  function hasImageFill(node) {
+    try {
+      const f = node.fills;
+      return f !== figma.mixed && Array.isArray(f) && f.some(x => x.type === 'IMAGE');
+    } catch (e) { return false; }
+  }
+
+  function getInnerShapes(node) {
+    // ELLIPSE/RECTANGLE 내부 탐색 (avatar FRAME 안의 실제 플레이스홀더 찾기)
+    const shapes = [];
+    function walk(n) {
+      if (n.type === 'ELLIPSE' || n.type === 'RECTANGLE') { shapes.push(n); return; }
+      if ('children' in n && n.children) n.children.forEach(walk);
+    }
+    if ('children' in node && node.children) node.children.forEach(walk);
+    return shapes;
+  }
+
+  const found = [];
+
+  // Phase 1: 이미 IMAGE fill이 있는 노드 (가장 정확)
+  function phase1(node) {
+    if (node.type === 'TEXT') return;
+    if ('fills' in node && hasImageFill(node)) { found.push(node); return; }
+    if ('children' in node && node.children) node.children.forEach(phase1);
+  }
+  selection.forEach(phase1);
+  if (found.length > 0) return found;
+
+  // Phase 2: 아바타 키워드가 있는 노드
+  // - ELLIPSE/RECT 등 leaf 노드 → 직접 추가
+  // - FRAME 등 컨테이너 → 내부 ELLIPSE/RECT 탐색 후 없으면 컨테이너 자체 추가
+  function phase2(node) {
+    if (node.type === 'TEXT') return;
+    if ('fills' in node && hasKeyword(node.name)) {
+      const isLeafShape = ['ELLIPSE','RECTANGLE','POLYGON','VECTOR'].includes(node.type);
+      if (isLeafShape) {
+        found.push(node);
+        return;
+      }
+      // 컨테이너(FRAME, GROUP, INSTANCE 등): 내부 ELLIPSE/RECT 우선
+      const inner = getInnerShapes(node);
+      if (inner.length > 0) {
+        found.push(...inner);
+      } else {
+        found.push(node); // 내부에 shape 없으면 컨테이너 자체에 적용
+      }
+      return;
+    }
+    if ('children' in node && node.children) node.children.forEach(phase2);
+  }
+  selection.forEach(phase2);
+  if (found.length > 0) return found;
+
+  // Phase 3: 최후 폴백 — 선택 내 모든 ELLIPSE/RECTANGLE
+  function phase3(node) {
+    if (node.type === 'ELLIPSE' || node.type === 'RECTANGLE') { found.push(node); return; }
+    if ('children' in node && node.children) node.children.forEach(phase3);
+  }
+  selection.forEach(phase3);
+  return found;
 }
 
 // 프로필 이미지 URL 목록 (커스텀 이미지)
