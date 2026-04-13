@@ -2301,11 +2301,12 @@
 
     // ===== Code2Design =====
     // ===== Canvas 아바타 생성 (네트워크 불필요) =====
-    const AVATAR_COLORS = [
+    // var 사용: onmessage 핸들러가 파일 파싱 전에 실행될 때 const TDZ 에러 방지
+    var AVATAR_COLORS = [
       '#FF6B6B','#FF9F43','#FECA57','#48DBFB','#1DD1A1',
       '#54A0FF','#5F27CD','#FF9FF3','#00D2D3','#576574'
     ];
-    let avatarColorIndex = 0;
+    var avatarColorIndex = 0;
 
     function generateAvatarBytes(size) {
       size = size || 200;
