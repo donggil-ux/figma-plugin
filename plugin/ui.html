@@ -901,6 +901,20 @@
 
     /* Code2Design 탭 스타일 */
     .code-input-section { margin-bottom: 16px; }
+    .file-upload-area {
+      border: 1.5px dashed #D7D8E5; border-radius: 10px;
+      padding: 12px 16px; margin-bottom: 10px;
+      display: flex; align-items: center; gap: 10px;
+      background: #F8F8FC; cursor: pointer; transition: border-color 0.15s, background 0.15s;
+    }
+    .file-upload-area:hover, .file-upload-area.drag-over {
+      border-color: #6366F1; background: #F0F0FF;
+    }
+    .file-upload-area input[type="file"] { display: none; }
+    .file-upload-icon { font-size: 18px; flex-shrink: 0; }
+    .file-upload-text { font-size: 12px; color: #6B6B6B; flex: 1; }
+    .file-upload-text strong { color: #6366F1; }
+    .file-upload-name { font-size: 11px; color: #6366F1; font-weight: 600; max-width: 140px; overflow: hidden; text-overflow: ellipsis; white-space: nowrap; }
     .code-textarea {
       width: 100%; height: 320px; padding: 12px;
       border: 1px solid #D7D8E5; border-radius: 12px;
@@ -989,7 +1003,13 @@
       <div class="card">
         <h2 class="card-title">Code → Figma Design</h2>
         <div class="code-input-section">
-          <label class="input-label">HTML 코드를 붙여넣으세요</label>
+          <label class="input-label">HTML 코드를 붙여넣거나 파일을 업로드하세요</label>
+          <div class="file-upload-area" id="fileUploadArea" onclick="document.getElementById('htmlFileInput').click()">
+            <input type="file" id="htmlFileInput" accept=".html,.htm,.css,.js,.jsx,.tsx,.vue,.svg" />
+            <span class="file-upload-icon">📂</span>
+            <span class="file-upload-text" id="fileUploadText"><strong>파일 선택</strong> 또는 여기에 드래그</span>
+            <span class="file-upload-name" id="fileUploadName" style="display:none;"></span>
+          </div>
           <textarea class="code-textarea" id="codeInput" placeholder="<!DOCTYPE html>
 <html>
 <head>
@@ -2196,6 +2216,38 @@
       for (let i = 0; i < bin.length; i++) bytes[i] = bin.charCodeAt(i);
       return Array.from(bytes);
     }
+
+    // ===== HTML 파일 업로드 =====
+    (function() {
+      function loadFile(file) {
+        if (!file) return;
+        var reader = new FileReader();
+        reader.onload = function(e) {
+          var textarea = document.getElementById('codeInput');
+          if (textarea) textarea.value = e.target.result;
+          var nameEl = document.getElementById('fileUploadName');
+          var textEl = document.getElementById('fileUploadText');
+          if (nameEl) { nameEl.textContent = file.name; nameEl.style.display = 'block'; }
+          if (textEl) textEl.style.display = 'none';
+        };
+        reader.readAsText(file, 'UTF-8');
+      }
+
+      document.addEventListener('DOMContentLoaded', function() {
+        var input = document.getElementById('htmlFileInput');
+        var area = document.getElementById('fileUploadArea');
+        if (input) input.addEventListener('change', function() { loadFile(this.files[0]); });
+        if (area) {
+          area.addEventListener('dragover', function(e) { e.preventDefault(); area.classList.add('drag-over'); });
+          area.addEventListener('dragleave', function() { area.classList.remove('drag-over'); });
+          area.addEventListener('drop', function(e) {
+            e.preventDefault(); area.classList.remove('drag-over');
+            var file = e.dataTransfer.files[0];
+            if (file) loadFile(file);
+          });
+        }
+      });
+    })();
 
     function showCode2DesignStatus(message, type) {
       const el = document.getElementById('code2designStatus');
