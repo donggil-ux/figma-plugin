@@ -1679,43 +1679,122 @@
 
     let isDataLoaded = false;
 
-    // Google Sheets에서 특정 시트 데이터 불러오기
-    async function loadSheetData(sheetName) {
-      try {
-        const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json&sheet=${encodeURIComponent(sheetName)}`;
-        const response = await fetch(url);
-        const text = await response.text();
+    // gviz table → [{ name, desc, values }] 로 변환
+    function parseGvizTable(table, sheetName) {
+      if (!table || !table.cols || !table.rows) {
+        console.error(`[Sheet ${sheetName}] 빈 테이블 응답`);
+        return [];
+      }
+      const result = [];
+      const headers = table.cols.map(col => col.label || '');
+      headers.forEach((header, colIdx) => {
+        if (!header) return;
+        const values = [];
+        table.rows.forEach(row => {
+          const cell = row.c && row.c[colIdx];
+          if (cell && cell.v != null && cell.v !== '') values.push(String(cell.v));
+        });
+        if (values.length > 0) result.push({ name: header, desc: header, values: values });
+      });
+      console.log(`[Sheet ${sheetName}] 파싱 완료:`, result.map(f => `${f.name}(${f.values.length})`).join(', '));
+      return result;
+    }
 
-        const jsonString = text.match(/google\.visualization\.Query\.setResponse\(([\s\S]*)\);/);
-        if (!jsonString || !jsonString[1]) {
-          console.error(`${sheetName} 시트 응답 파싱 실패`);
-          return [];
+    // CSV 한 줄 파싱 (따옴표 처리 포함)
+    function parseCsvLine(line) {
+      const out = [];
+      let cur = '', inQ = false;
+      for (let i = 0; i < line.length; i++) {
+        const ch = line[i];
+        if (inQ) {
+          if (ch === '"') {
+            if (line[i + 1] === '"') { cur += '"'; i++; }
+            else inQ = false;
+          } else cur += ch;
+        } else {
+          if (ch === ',') { out.push(cur); cur = ''; }
+          else if (ch === '"') inQ = true;
+          else cur += ch;
+        }
+      }
+      out.push(cur);
+      return out;
+    }
+
+    // Google Sheets에서 특정 시트 데이터 불러오기 (JSONP - CORS 우회)
+    function loadSheetData(sheetName) {
+      return new Promise((resolve) => {
+        const cbName = '_gviz_' + Date.now() + '_' + (Math.random() * 1e9 | 0);
+        const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:json;responseHandler:${cbName}&headers=1&sheet=${encodeURIComponent(sheetName)}&_=${Date.now()}`;
+        console.log(`[Sheet ${sheetName}] JSONP 요청:`, url);
+
+        const timer = setTimeout(() => {
+          cleanup();
+          console.error(`[Sheet ${sheetName}] JSONP 타임아웃 (10s) - 시트가 '링크가 있는 모든 사용자' 로 공유되어 있는지, 네이티브 Google Sheet (xlsx가 아님) 인지 확인하세요.`);
+          tryCsvFallback(sheetName).then(resolve);
+        }, 10000);
+
+        function cleanup() {
+          clearTimeout(timer);
+          try { delete window[cbName]; } catch (_) { window[cbName] = undefined; }
+          if (script.parentNode) script.parentNode.removeChild(script);
         }
 
-        const json = JSON.parse(jsonString[1]);
-        const table = json.table;
-        const result = [];
+        window[cbName] = function(json) {
+          cleanup();
+          if (!json || json.status === 'error') {
+            const reasons = json && json.errors ? json.errors.map(e => `${e.reason}: ${e.message || e.detailed_message || ''}`).join(' / ') : 'unknown';
+            console.error(`[Sheet ${sheetName}] gviz 오류:`, reasons);
+            tryCsvFallback(sheetName).then(resolve);
+            return;
+          }
+          resolve(parseGvizTable(json.table, sheetName));
+        };
 
-        const headers = table.cols.map(col => col.label || '');
+        const script = document.createElement('script');
+        script.src = url;
+        script.onerror = (e) => {
+          cleanup();
+          console.error(`[Sheet ${sheetName}] JSONP 스크립트 로드 실패 - 시트 공개 설정 또는 SHEET_ID를 확인하세요.`, e);
+          tryCsvFallback(sheetName).then(resolve);
+        };
+        document.head.appendChild(script);
+      });
+    }
+
+    // JSONP 실패 시 CSV export 폴백
+    async function tryCsvFallback(sheetName) {
+      try {
+        const url = `https://docs.google.com/spreadsheets/d/${SHEET_ID}/gviz/tq?tqx=out:csv&sheet=${encodeURIComponent(sheetName)}`;
+        console.log(`[Sheet ${sheetName}] CSV 폴백 시도:`, url);
+        const res = await fetch(url, { credentials: 'omit' });
+        if (!res.ok) {
+          console.error(`[Sheet ${sheetName}] CSV 응답 실패:`, res.status, res.statusText);
+          return [];
+        }
+        const text = await res.text();
+        if (!text || text.trim().startsWith('<')) {
+          console.error(`[Sheet ${sheetName}] CSV가 HTML을 반환 - 시트 접근 권한이 없거나 시트가 존재하지 않음`);
+          return [];
+        }
+        const lines = text.split(/\r?\n/).filter(l => l.length > 0);
+        if (lines.length < 1) return [];
+        const headers = parseCsvLine(lines[0]);
+        const rows = lines.slice(1).map(parseCsvLine);
+        const result = [];
         headers.forEach((header, colIdx) => {
           if (!header) return;
-
           const values = [];
-          table.rows.forEach(row => {
-            const cell = row.c[colIdx];
-            if (cell && cell.v) {
-              values.push(String(cell.v));
-            }
+          rows.forEach(row => {
+            const v = row[colIdx];
+            if (v != null && v !== '') values.push(v);
           });
-
-          if (values.length > 0) {
-            result.push({ name: header, desc: header, values: values });
-          }
+          if (values.length > 0) result.push({ name: header, desc: header, values: values });
         });
-
+        console.log(`[Sheet ${sheetName}] CSV 파싱 완료:`, result.map(f => `${f.name}(${f.values.length})`).join(', '));
         return result;
-      } catch (error) {
-        console.error(`${sheetName} 시트 로드 실패:`, error);
+      } catch (e) {
+        console.error(`[Sheet ${sheetName}] CSV 폴백 실패:`, e);
         return [];
       }
     }
