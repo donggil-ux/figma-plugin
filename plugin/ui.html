@@ -2256,7 +2256,6 @@
           if (!textarea) { setUploadState('error', '입력 영역을 찾을 수 없음'); return; }
           textarea.value = e.target.result;
           setUploadState('success', file.name);
-          generateDesign();
         };
         reader.onerror = function() {
           setUploadState('error', '파일을 읽을 수 없습니다');
