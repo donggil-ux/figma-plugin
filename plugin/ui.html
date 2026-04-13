@@ -1849,7 +1849,7 @@
         if (field.isImage) {
           startLoading('applyDataBtn', 'data-fill-status');
           parent.postMessage({
-            pluginMessage: { type: 'apply-image-fill', imageType: field.imageType, fieldName: field.name }
+            pluginMessage: { type: 'apply-image-fill', imageType: field.imageType, fieldName: field.name, imageUrls: field.values || [] }
           }, '*');
         } else {
           const randomValue = field.values[Math.floor(Math.random() * field.values.length)];
@@ -2219,26 +2219,58 @@
 
     // ===== HTML 파일 업로드 =====
     (function() {
+      function setUploadState(state, label) {
+        var area   = document.getElementById('fileUploadArea');
+        var iconEl = document.querySelector('#fileUploadArea .file-upload-icon');
+        var textEl = document.getElementById('fileUploadText');
+        var nameEl = document.getElementById('fileUploadName');
+        if (!area) return;
+        area.style.borderColor = '';
+        if (state === 'loading') {
+          if (iconEl) iconEl.textContent = '⏳';
+          if (textEl) { textEl.innerHTML = '<strong>파일 읽는 중...</strong>'; textEl.style.display = 'block'; }
+          if (nameEl) nameEl.style.display = 'none';
+        } else if (state === 'success') {
+          if (iconEl) iconEl.textContent = '✅';
+          if (nameEl) { nameEl.textContent = label; nameEl.style.display = 'block'; }
+          if (textEl) textEl.style.display = 'none';
+          area.style.borderColor = '#6366F1';
+        } else if (state === 'error') {
+          if (iconEl) iconEl.textContent = '❌';
+          if (textEl) { textEl.innerHTML = '<strong style="color:#ef4444">' + (label || '파일 읽기 실패') + '</strong>'; textEl.style.display = 'block'; }
+          if (nameEl) nameEl.style.display = 'none';
+          area.style.borderColor = '#ef4444';
+        } else {
+          if (iconEl) iconEl.textContent = '📂';
+          if (textEl) { textEl.innerHTML = '<strong>파일 선택</strong> 또는 여기에 드래그'; textEl.style.display = 'block'; }
+          if (nameEl) nameEl.style.display = 'none';
+        }
+      }
+
       function loadFile(file) {
         if (!file) return;
+        setUploadState('loading');
         var reader = new FileReader();
         reader.onload = function(e) {
           var textarea = document.getElementById('codeInput');
-          if (textarea) textarea.value = e.target.result;
-          var nameEl = document.getElementById('fileUploadName');
-          var textEl = document.getElementById('fileUploadText');
-          if (nameEl) { nameEl.textContent = file.name; nameEl.style.display = 'block'; }
-          if (textEl) textEl.style.display = 'none';
+          if (!textarea) { setUploadState('error', '입력 영역을 찾을 수 없음'); return; }
+          textarea.value = e.target.result;
+          setUploadState('success', file.name);
+          generateDesign();
+        };
+        reader.onerror = function() {
+          setUploadState('error', '파일을 읽을 수 없습니다');
+          showCode2DesignStatus('파일 읽기 실패. 다시 시도해주세요.', 'error');
         };
         reader.readAsText(file, 'UTF-8');
       }
 
       var input = document.getElementById('htmlFileInput');
-      var area = document.getElementById('fileUploadArea');
-      if (input) input.addEventListener('change', function() { loadFile(this.files[0]); });
+      var area  = document.getElementById('fileUploadArea');
+      if (input) input.addEventListener('change', function() { if (this.files[0]) loadFile(this.files[0]); });
       if (area) {
-        area.addEventListener('dragover', function(e) { e.preventDefault(); area.classList.add('drag-over'); });
-        area.addEventListener('dragleave', function() { area.classList.remove('drag-over'); });
+        area.addEventListener('dragover',  function(e) { e.preventDefault(); area.classList.add('drag-over'); });
+        area.addEventListener('dragleave', function()  { area.classList.remove('drag-over'); });
         area.addEventListener('drop', function(e) {
           e.preventDefault(); area.classList.remove('drag-over');
           var file = e.dataTransfer.files[0];
