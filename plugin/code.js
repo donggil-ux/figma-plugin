@@ -1161,11 +1161,37 @@ function startImageFill(imageType, fieldName) {
   appliedImageCount = 0;
 
   if (imageType === 'profile') {
-    // 한 번에 일괄 처리: 노드 ID 목록을 UI에 전달
+    // Canvas/네트워크 없이 직접 단색 채우기 (신뢰성 최우선)
+    const AVATAR_COLORS = [
+      '#FF6B6B','#FF9F43','#FECA57','#48DBFB','#1DD1A1',
+      '#54A0FF','#5F27CD','#FF9FF3','#00D2D3','#576574'
+    ];
+    let colorIdx = 0;
+    let applyError = null;
+    for (const node of fillableNodes) {
+      const hex = AVATAR_COLORS[colorIdx % AVATAR_COLORS.length];
+      colorIdx++;
+      if (!('fills' in node)) { applyError = `fills 미지원: ${node.type}`; pendingImageCount--; continue; }
+      if ('locked' in node && node.locked) { applyError = `레이어 잠김: "${node.name}"`; pendingImageCount--; continue; }
+      try {
+        const rgb = hexToFigmaRgb(hex);
+        node.fills = [{ type: 'SOLID', color: { r: rgb.r, g: rgb.g, b: rgb.b } }];
+        appliedImageCount++;
+      } catch (e) {
+        applyError = e.message || String(e);
+      }
+      pendingImageCount--;
+    }
     figma.ui.postMessage({
-      type: 'generate-avatars-batch',
-      nodeIds: fillableNodes.map(n => n.id)
+      type: 'data-fill-status',
+      status: appliedImageCount > 0 ? 'success' : 'error',
+      message: appliedImageCount > 0
+        ? `${appliedImageCount}개 레이어에 아바타 색상 적용 완료`
+        : `적용 실패: ${applyError || '알 수 없는 오류'}`
     });
+    pendingImageCount = 0;
+    appliedImageCount = 0;
+    return;
   } else {
     for (const node of fillableNodes) {
       const imageUrl = getImageUrl(imageType, node.width, node.height);
