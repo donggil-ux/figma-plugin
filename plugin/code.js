@@ -186,6 +186,20 @@ figma.ui.onmessage = async (msg) => {
     findTextInPage(msg.query, msg.caseSensitive);
   }
 
+  // 탭 순서 불러오기
+  if (msg.type === 'get-tab-order') {
+    figma.clientStorage.getAsync('tabOrder').then(order => {
+      if (order && Array.isArray(order)) {
+        figma.ui.postMessage({ type: 'tab-order', order });
+      }
+    }).catch(() => {});
+  }
+
+  // 탭 순서 저장
+  if (msg.type === 'save-tab-order') {
+    figma.clientStorage.setAsync('tabOrder', msg.order).catch(() => {});
+  }
+
   // 노션 내용과 비교
   if (msg.type === 'compare-with-notion') {
     compareWithNotion(msg.notionText);

@@ -83,6 +83,22 @@
       background: #110F1A;
       border-radius: 2px;
     }
+    .tab.dragging {
+      opacity: 0.35;
+      cursor: grabbing;
+    }
+    .tab.drag-over-left::before,
+    .tab.drag-over-right::after {
+      content: '';
+      position: absolute;
+      top: 6px;
+      bottom: 6px;
+      width: 3px;
+      background: #6366F1;
+      border-radius: 2px;
+    }
+    .tab.drag-over-left::before { left: -13px; }
+    .tab.drag-over-right::after { right: -13px; bottom: 4px; height: calc(100% - 12px); }
 
     /* 콘텐츠 영역 스크롤 컨테이너 */
     .content-wrapper {
@@ -1003,11 +1019,11 @@
   <!-- 탭 헤더 -->
   <div class="tabs-container">
     <div class="tabs" id="tabsScroller">
-      <button class="tab active" data-tab="export">Data Fill</button>
-      <button class="tab" data-tab="bridge">Text Editor</button>
-      <button class="tab" data-tab="rename">Rename</button>
-      <button class="tab" data-tab="style">Checker</button>
-      <button class="tab" data-tab="code2design">Code2Design</button>
+      <button class="tab active" data-tab="export" draggable="true">Data Fill</button>
+      <button class="tab" data-tab="bridge" draggable="true">Text Editor</button>
+      <button class="tab" data-tab="rename" draggable="true">Rename</button>
+      <button class="tab" data-tab="style" draggable="true">Checker</button>
+      <button class="tab" data-tab="code2design" draggable="true">Code2Design</button>
     </div>
   </div>
 
@@ -1165,7 +1181,7 @@
       <div class="card">
         <h2 class="card-title">텍스트 찾기</h2>
         <div class="input-group">
-          <textarea id="findTextInput" placeholder="찾을 텍스트를 입력하세요" rows="2" style="resize:none;"></textarea>
+          <textarea id="findTextInput" placeholder="찾을 텍스트를 입력하세요" style="resize:none;height:120px;"></textarea>
         </div>
         <div class="button-group">
           <button class="btn btn-primary" id="findTextBtn">
@@ -1173,7 +1189,7 @@
             <span class="btn-loading"><span class="btn-spinner"></span>검색 중...</span>
           </button>
         </div>
-        <label style="font-size:11px;color:#666;display:flex;align-items:center;gap:4px;margin-top:4px;">
+        <label style="font-size:11px;color:#666;display:flex;align-items:center;gap:4px;margin-top:8px;">
           <input type="checkbox" id="findCaseSensitive"> 대소문자 구분
         </label>
         <div id="findTextResults" style="margin-top:8px;"></div>
@@ -1328,43 +1344,79 @@
       if (btnId) { setButtonLoading(btnId, false); delete loadingBtnMap[statusKey]; }
     }
 
-    // ===== 탭 드래그 스크롤 =====
+    // ===== 탭 드래그 순서 변경 =====
     const tabsScroller = document.getElementById('tabsScroller');
-    let isTabDragging = false;
-    let tabStartX;
-    let tabScrollLeft;
+    let dragSrcTab = null;
 
-    tabsScroller.addEventListener('mousedown', (e) => {
-      isTabDragging = true;
-      tabsScroller.style.cursor = 'grabbing';
-      tabStartX = e.pageX - tabsScroller.offsetLeft;
-      tabScrollLeft = tabsScroller.scrollLeft;
-    });
+    function saveTabOrder() {
+      const order = [...tabsScroller.querySelectorAll('.tab')].map(t => t.dataset.tab);
+      parent.postMessage({ pluginMessage: { type: 'save-tab-order', order } }, '*');
+    }
 
-    tabsScroller.addEventListener('mouseleave', () => {
-      isTabDragging = false;
-      tabsScroller.style.cursor = 'grab';
-    });
+    function applyTabOrder(order) {
+      order.forEach(tabName => {
+        const btn = tabsScroller.querySelector(`.tab[data-tab="${tabName}"]`);
+        if (btn) tabsScroller.appendChild(btn);
+      });
+    }
 
-    tabsScroller.addEventListener('mouseup', () => {
-      isTabDragging = false;
-      tabsScroller.style.cursor = 'grab';
-    });
+    function clearDragOver() {
+      tabsScroller.querySelectorAll('.tab').forEach(t => {
+        t.classList.remove('drag-over-left', 'drag-over-right');
+      });
+    }
 
-    tabsScroller.addEventListener('mousemove', (e) => {
-      if (!isTabDragging) return;
-      e.preventDefault();
-      const x = e.pageX - tabsScroller.offsetLeft;
-      const walk = (x - tabStartX) * 1.5;
-      tabsScroller.scrollLeft = tabScrollLeft - walk;
-    });
+    function bindTabDrag(tab) {
+      tab.addEventListener('dragstart', (e) => {
+        dragSrcTab = tab;
+        tab.classList.add('dragging');
+        e.dataTransfer.effectAllowed = 'move';
+        e.dataTransfer.setData('text/plain', tab.dataset.tab);
+      });
+
+      tab.addEventListener('dragend', () => {
+        tab.classList.remove('dragging');
+        clearDragOver();
+        dragSrcTab = null;
+      });
+
+      tab.addEventListener('dragover', (e) => {
+        e.preventDefault();
+        if (!dragSrcTab || tab === dragSrcTab) return;
+        clearDragOver();
+        // 마우스가 탭의 절반 기준 왼쪽/오른쪽으로 삽입 위치 결정
+        const rect = tab.getBoundingClientRect();
+        const mid = rect.left + rect.width / 2;
+        if (e.clientX < mid) tab.classList.add('drag-over-left');
+        else tab.classList.add('drag-over-right');
+      });
+
+      tab.addEventListener('dragleave', () => {
+        tab.classList.remove('drag-over-left', 'drag-over-right');
+      });
+
+      tab.addEventListener('drop', (e) => {
+        e.preventDefault();
+        if (!dragSrcTab || dragSrcTab === tab) return;
+        clearDragOver();
+        const rect = tab.getBoundingClientRect();
+        const mid = rect.left + rect.width / 2;
+        if (e.clientX < mid) {
+          tabsScroller.insertBefore(dragSrcTab, tab);
+        } else {
+          tabsScroller.insertBefore(dragSrcTab, tab.nextSibling);
+        }
+        saveTabOrder();
+      });
+    }
+
+    document.querySelectorAll('.tab').forEach(bindTabDrag);
 
     // 탭 전환
     document.querySelectorAll('.tab').forEach(tab => {
-      tab.onclick = (e) => {
-        // 드래그 중이면 클릭 무시
-        if (Math.abs(e.pageX - tabsScroller.offsetLeft - tabStartX) > 5) return;
-
+      tab.onclick = () => {
+        // 드래그 직후 click 이벤트 무시
+        if (dragSrcTab) return;
         document.querySelectorAll('.tab').forEach(t => t.classList.remove('active'));
         document.querySelectorAll('.tab-content').forEach(c => c.classList.remove('active'));
         tab.classList.add('active');
@@ -1468,9 +1520,16 @@
     let selectionCount = 0;  // 현재 Figma에서 선택된 레이어 개수
     let matchingLayerCount = 0;  // 선택된 필드명과 일치하는 레이어 개수
 
+    // 플러그인 시작 시 저장된 탭 순서 요청
+    parent.postMessage({ pluginMessage: { type: 'get-tab-order' } }, '*');
+
     window.onmessage = (event) => {
       const msg = event.data.pluginMessage;
       if (!msg) return;
+
+      if (msg.type === 'tab-order' && Array.isArray(msg.order)) {
+        applyTabOrder(msg.order);
+      }
 
       if (msg.type === 'status') {
         showBridgeStatus(msg.message, msg.status);
