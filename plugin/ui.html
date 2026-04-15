@@ -1496,6 +1496,8 @@
         if (msg.status === 'success' || msg.status === 'error') {
           const btn = document.getElementById('generateDesignBtn');
           if (btn) btn.classList.remove('loading');
+          // Clear the code.js processing safety timeout if it's still pending
+          if (typeof window._c2dFigmaTimeoutClear === 'function') { window._c2dFigmaTimeoutClear(); window._c2dFigmaTimeoutClear = null; }
           showSnackbar(msg.message, msg.status);
         }
       }
@@ -2052,7 +2054,8 @@
     }
 
     // 비교 버튼
-    document.getElementById('compareBtn').onclick = () => {
+    var _compareBtnEl = document.getElementById('compareBtn');
+    if (_compareBtnEl) _compareBtnEl.onclick = () => {
       let notionText = '';
 
       if (compareSource === 'paste') {
@@ -2475,20 +2478,24 @@
     }
 
     function buildSrcdocTailwind(code) {
+      // Fix5: same animation/transition reset as buildSrcdocHTML — prevents Tailwind
+      // transition-colors/transition-all classes from being captured mid-animation.
+      var reset = '<style>*,*::before,*::after{animation-duration:0.001ms!important;transition-duration:0.001ms!important;}</style>';
       if (isFullHTMLDocument(code)) {
         var base = code.indexOf('cdn.tailwindcss.com') < 0
           ? code.replace(/<head([^>]*)>/i, '<head$1><script src="https://cdn.tailwindcss.com"><\/script>')
           : code;
         if (base.indexOf('</head>') >= 0) {
-          base = base.replace('</head>', C2D_READY_SCRIPT + '</head>');
+          base = base.replace('</head>', reset + C2D_READY_SCRIPT + '</head>');
         } else {
-          base = base.replace('</body>', C2D_READY_SCRIPT + '</body>');
+          base = base.replace('</body>', reset + C2D_READY_SCRIPT + '</body>');
         }
         return base;
       }
       var p = extractCSSAndHTML(code);
       return '<!DOCTYPE html><html><head><meta charset="utf-8">' + p.links +
-        '<script src="https://cdn.tailwindcss.com"><\/script><style>' + p.css + '</style>' +
+        '<script src="https://cdn.tailwindcss.com"><\/script>' + reset +
+        '<style>' + p.css + '</style>' +
         C2D_READY_SCRIPT + '</head><body>' + p.html + '</body></html>';
     }
 
@@ -2541,7 +2548,14 @@
     }
 
     function isTextElement(el) {
-      if (el.children.length>0) return false;
+      // Only <br> is transparent: <h1>Line1<br>Line2</h1> → single text node
+      // (innerText converts <br> to \n).
+      // Do NOT allow <span>/<strong>/etc — styled inline elements may carry their
+      // own layout (e.g. flex <li><span>1.</span><span>text</span></li>) that must
+      // be preserved as a proper frame, not merged into one text node.
+      for (var i=0;i<el.children.length;i++) {
+        if (el.children[i].tagName.toUpperCase() !== 'BR') return false;
+      }
       var t=el.innerText||el.textContent;
       return t&&t.trim().length>0;
     }
@@ -2556,6 +2570,17 @@
       if (style.display==='none'||style.visibility==='hidden') return null;
       var rect=el.getBoundingClientRect();
       var w=rect.width||el.offsetWidth||0, h=rect.height||el.offsetHeight||0;
+
+      // HR: handle BEFORE the w/h zero-check — border-only elements can have h=0
+      // from getBoundingClientRect even though they are visually 1-2px tall.
+      if (tagUpper==='HR') {
+        var hrW=Math.max(10, Math.round(w||el.parentElement&&el.parentElement.offsetWidth||100));
+        var hrColor=rgbStringToHex(style.borderTopColor)||rgbStringToHex(style.borderColor)||'#CCCCCC';
+        var hrThick=parseFloat(style.borderTopWidth)||parseFloat(style.borderWidth)||1;
+        var hrH=Math.max(1,Math.round(hrThick));
+        return {type:'frame',name:'hr',width:hrW,height:hrH,fill:hrColor,cornerRadius:0,children:[]};
+      }
+
       if (w===0&&h===0) return null;
       var node={};
 
@@ -2627,7 +2652,7 @@
       if (display==='flex'||display==='inline-flex') {
         node.layoutMode=(style.flexDirection==='column'||style.flexDirection==='column-reverse')?'VERTICAL':'HORIZONTAL';
         node.justifyContent=style.justifyContent; node.alignItems=style.alignItems;
-        node.gap=parseFloat(style.gap)||parseFloat(style.columnGap)||0;
+        node.gap=parseFloat(style.gap)||(node.layoutMode==='VERTICAL'?parseFloat(style.rowGap):parseFloat(style.columnGap))||0; // Fix4: use rowGap for vertical flex
         node.padding=[parseFloat(style.paddingTop)||0,parseFloat(style.paddingRight)||0,parseFloat(style.paddingBottom)||0,parseFloat(style.paddingLeft)||0];
       } else {
         // CSS grid and all other layouts: use absolute positioning (NONE)
@@ -2663,12 +2688,35 @@
       for (var j=0;j<el.childNodes.length;j++) {
         var cn=el.childNodes[j];
         if (cn.nodeType===3&&cn.textContent.trim()) {
-          node.children.push({type:'text',name:'text',content:cn.textContent.trim(),
+          var textNode={type:'text',name:'text',content:cn.textContent.trim(),
             fontSize:parseFloat(style.fontSize)||14,
             fontFamily:(style.fontFamily||'Inter').split(',')[0].replace(/['"]/g,'').trim(),
-            fontWeight:c2dMapFontWeight(style.fontWeight),color:rgbStringToHex(style.color)});
+            fontWeight:c2dMapFontWeight(style.fontWeight),color:rgbStringToHex(style.color)};
+          // Fix7: use Range API to get exact position for bare text nodes in absolute layouts
+          if (node.layoutMode==='NONE') {
+            try {
+              var cnRange=win.document.createRange();
+              cnRange.selectNode(cn);
+              var cnRect2=cnRange.getBoundingClientRect();
+              if (cnRect2.width>0||cnRect2.height>0) {
+                textNode.x=Math.round(cnRect2.left-rect.left);
+                textNode.y=Math.round(cnRect2.top-rect.top);
+                textNode.width=Math.round(cnRect2.width);
+                textNode.height=Math.round(cnRect2.height);
+              }
+            } catch(e2) {}
+          }
+          node.children.push(textNode);
         }
       }
+
+      // Fix6: column-reverse / row-reverse — Figma auto-layout has no "reverse" mode.
+      // Applied AFTER both loops so element children AND bare text nodes are all reversed together.
+      if (display==='flex'||display==='inline-flex') {
+        var fd=style.flexDirection;
+        if (fd==='column-reverse'||fd==='row-reverse') node.children.reverse();
+      }
+
       return node;
     }
 
@@ -2758,6 +2806,7 @@
               }
             }
             if (designTree.elements.length===0) {
+              clearTimeout(renderTimeout); // prevent 15s double-error after early return
               showCode2DesignStatus('렌더링된 요소가 없습니다. HTML 코드를 확인해주세요.','error');
               if(btn) btn.classList.remove('loading'); return;
             }
@@ -2766,8 +2815,19 @@
             if(preview) preview.style.display='block';
             if(previewInfo) previewInfo.innerHTML='<div>추출된 요소: '+nodeCount+'개</div>';
             showCode2DesignStatus('Figma 프레임 생성 중... ('+nodeCount+'개 요소)','info');
+            // Safety timeout: if code.js doesn't respond within 120s, unblock the UI.
+            // This handles silent crashes (OOM, Figma sandbox timeout) for large HTML.
+            var c2dFigmaTimeout = setTimeout(function() {
+              if (genId !== _c2dGenId) return;
+              if(btn) btn.classList.remove('loading');
+              showCode2DesignStatus('처리 시간이 너무 오래 걸립니다. 더 단순한 HTML을 시도해보세요.', 'error');
+            }, 120000);
+            // Override the global status listener to also clear this timeout
+            var _origOnMsg = window._c2dFigmaTimeoutClear;
+            window._c2dFigmaTimeoutClear = function() { clearTimeout(c2dFigmaTimeout); if(typeof _origOnMsg==='function') _origOnMsg(); }; // Fix2: chain prev handler
             parent.postMessage({pluginMessage:{type:'generate-from-browser-render',designTree:designTree}},'*');
           } catch(e) {
+            clearTimeout(c2dFigmaTimeout); // Fix1: prevent phantom 120s error after capture failure
             if(btn) btn.classList.remove('loading');
             showCode2DesignStatus('스타일 추출 실패: '+e.message,'error');
           }
@@ -2780,10 +2840,12 @@
           }
         };
 
+        // Fix3: register BEFORE setting srcdoc to eliminate race where c2dReady fires
+        // before iframe.onload completes on fast/simple HTML.
+        window.addEventListener('message', c2dReadyHandler);
+
         iframe.onload=function(){
-          // Always wait for c2dReady (window.onload signal injected in all srcdoc types)
-          // This correctly handles Google Fonts, external stylesheets, and Tailwind CDN
-          window.addEventListener('message', c2dReadyHandler);
+          // Listener already registered above; nothing extra needed here.
         };
 
         iframe.onerror=function(){

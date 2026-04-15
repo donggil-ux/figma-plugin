@@ -199,6 +199,10 @@ figma.ui.onmessage = async (msg) => {
   // Code2Design: Figma 플러그인 스크립트 직접 실행
   if (msg.type === 'execute-figma-script') {
     try {
+      if (typeof msg.code !== 'string' || msg.code.length > 50000) { // Fix8: size limit guard
+        figma.ui.postMessage({ type: 'code2design-status', status: 'error', message: '스크립트 크기 초과 (최대 50,000자)' });
+        return;
+      }
       var scriptResult = eval(msg.code); // eslint-disable-line no-eval
       if (scriptResult && typeof scriptResult.then === 'function') {
         scriptResult.then(function() {
@@ -1981,12 +1985,20 @@ async function createNodeEnhanced(nodeData, parentNode, depth) {
     try { await figma.loadFontAsync({family, style}); node.fontName = {family, style}; }
     catch(e) { try { await figma.loadFontAsync({family:'Inter',style}); node.fontName={family:'Inter',style}; } catch(e2) { node.fontName={family:'Inter',style:'Regular'}; } }
     node.characters = nodeData.content || ' ';
-    node.textAutoResize = 'HEIGHT';
     if (nodeData.fontSize) node.fontSize = nodeData.fontSize;
     if (nodeData.color) { var cRgb=hexToFigmaRgb(nodeData.color); if(cRgb) node.fills=[{type:'SOLID',color:{r:cRgb.r,g:cRgb.g,b:cRgb.b}}]; }
     if (nodeData.letterSpacing) node.letterSpacing = {value:nodeData.letterSpacing,unit:'PIXELS'};
     if (nodeData.lineHeight && nodeData.lineHeight !== 'auto') node.lineHeight = {value:nodeData.lineHeight,unit:'PIXELS'};
     if (nodeData.textAlign) { var aMap={LEFT:'LEFT',CENTER:'CENTER',RIGHT:'RIGHT',JUSTIFIED:'JUSTIFIED'}; node.textAlignHorizontal=aMap[nodeData.textAlign]||'LEFT'; }
+    // Use HEIGHT mode: lock width from DOM, let height auto-adjust to Figma's font metrics.
+    // NONE mode causes Korean/CJK text to visually overflow when Inter renders chars wider
+    // than the browser's system font, producing garbled/overlapping text.
+    if (nodeData.width > 0) {
+      node.textAutoResize = 'HEIGHT';
+      node.resize(nodeData.width, node.height);
+    } else {
+      node.textAutoResize = 'WIDTH_AND_HEIGHT';
+    }
 
   } else if (type === 'ellipse') {
     node = figma.createEllipse();

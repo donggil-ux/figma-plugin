@@ -18,6 +18,7 @@
       "https://picsum.photos",
       "https://likey-figma-proxy.onrender.com",
       "https://cdn.tailwindcss.com",
+      "https://cdn.jsdelivr.net",
       "http://localhost:7777"
     ],
     "reasoning": "맞춤법 검사 API, Google Sheets 데이터 로드, 이미지 로드, Tailwind CDN(Code2Design)을 위해 필요합니다."
