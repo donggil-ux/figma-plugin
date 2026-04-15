@@ -1161,6 +1161,22 @@
         </div>
       </div>
 
+      <!-- 텍스트 찾기 카드 -->
+      <div class="card">
+        <h2 class="card-title">텍스트 찾기</h2>
+        <div class="input-group" style="flex-direction:row;gap:6px;">
+          <input type="text" id="findTextInput" placeholder="찾을 텍스트 입력" style="flex:1;">
+          <button class="btn btn-primary" id="findTextBtn" style="white-space:nowrap;">
+            <span class="btn-text">찾기</span>
+            <span class="btn-loading"><span class="btn-spinner"></span>검색 중...</span>
+          </button>
+        </div>
+        <label style="font-size:11px;color:#666;display:flex;align-items:center;gap:4px;margin-top:4px;">
+          <input type="checkbox" id="findCaseSensitive"> 대소문자 구분
+        </label>
+        <div id="findTextResults" style="margin-top:8px;"></div>
+      </div>
+
       <!-- 찾아서 변경 카드 -->
       <div class="card">
         <h2 class="card-title">찾아서 변경</h2>
@@ -1417,6 +1433,24 @@
       parent.postMessage({ pluginMessage: { type: 'execute-command', command } }, '*');
     };
 
+    // 텍스트 찾기
+    document.getElementById('findTextBtn').onclick = () => {
+      const query = document.getElementById('findTextInput').value;
+      if (!query.trim()) { showSnackbar('검색어를 입력해주세요', 'info'); return; }
+      startLoading('findTextBtn', 'find-text');
+      document.getElementById('findTextResults').innerHTML = '';
+      parent.postMessage({
+        pluginMessage: {
+          type: 'find-text',
+          query: query,
+          caseSensitive: document.getElementById('findCaseSensitive').checked
+        }
+      }, '*');
+    };
+    document.getElementById('findTextInput').addEventListener('keydown', (e) => {
+      if (e.key === 'Enter') document.getElementById('findTextBtn').click();
+    });
+
     document.getElementById('spellCheckBtn').onclick = () => {
       startLoading('spellCheckBtn', 'spell-results');
       spellResults.className = 'spell-results';
@@ -1559,6 +1593,43 @@
               pluginMessage: { type: 'image-fetch-result', nodeId: msg.nodeId, data: null }
             }, '*');
           });
+      }
+
+      // 텍스트 찾기 결과
+      if (msg.type === 'find-text-results') {
+        stopLoading('find-text');
+        const container = document.getElementById('findTextResults');
+        if (!msg.results || msg.results.length === 0) {
+          container.innerHTML = `<div style="font-size:12px;color:#888;text-align:center;padding:8px 0;">"${escapeHtml(msg.query)}" 검색 결과 없음</div>`;
+          return;
+        }
+        container.innerHTML = `
+          <div style="display:flex;align-items:center;justify-content:space-between;margin-bottom:6px;">
+            <span style="font-size:11px;color:#666;">${msg.results.length}개 발견</span>
+            <button class="btn btn-secondary" id="findSelectAllBtn" style="padding:3px 8px;font-size:11px;">모두 선택</button>
+          </div>
+          <div class="checker-results" id="findResultsList">
+            ${msg.results.map(r => `
+              <div class="checker-item" data-node-id="${r.id}" style="cursor:pointer;">
+                <div class="checker-item-info">
+                  <div class="checker-item-name">${escapeHtml(r.name)}</div>
+                  <div style="font-size:10px;color:#888;overflow:hidden;white-space:nowrap;text-overflow:ellipsis;">${escapeHtml(r.characters)}</div>
+                </div>
+              </div>
+            `).join('')}
+          </div>
+        `;
+        container.querySelectorAll('.checker-item').forEach(item => {
+          item.onclick = () => {
+            parent.postMessage({ pluginMessage: { type: 'select-node', nodeId: item.dataset.nodeId } }, '*');
+          };
+        });
+        document.getElementById('findSelectAllBtn').onclick = () => {
+          parent.postMessage({
+            pluginMessage: { type: 'select-multiple-nodes', nodeIds: msg.results.map(r => r.id) }
+          }, '*');
+          showSnackbar(`${msg.results.length}개 노드 선택됨`, 'success');
+        };
       }
 
       // Checker 관련 메시지

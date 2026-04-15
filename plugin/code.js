@@ -181,6 +181,11 @@ figma.ui.onmessage = async (msg) => {
     selectMultipleNodes(msg.nodeIds);
   }
 
+  // 텍스트 찾기
+  if (msg.type === 'find-text') {
+    findTextInPage(msg.query, msg.caseSensitive);
+  }
+
   // 노션 내용과 비교
   if (msg.type === 'compare-with-notion') {
     compareWithNotion(msg.notionText);
@@ -1464,6 +1469,29 @@ function selectMultipleNodes(nodeIds) {
       message: '노드를 찾을 수 없습니다.'
     });
   }
+}
+
+// 현재 페이지에서 텍스트 검색
+function findTextInPage(query, caseSensitive) {
+  if (!query || !query.trim()) {
+    figma.ui.postMessage({ type: 'find-text-results', results: [], query: '' });
+    return;
+  }
+  const searchStr = caseSensitive ? query.trim() : query.trim().toLowerCase();
+  const allText = findAllTextNodes(figma.currentPage);
+  const matched = allText.filter(node => {
+    const chars = caseSensitive ? node.characters : node.characters.toLowerCase();
+    return chars.includes(searchStr);
+  });
+  figma.ui.postMessage({
+    type: 'find-text-results',
+    query: query,
+    results: matched.map(node => ({
+      id: node.id,
+      name: node.name,
+      characters: node.characters.slice(0, 80)
+    }))
+  });
 }
 
 // 디자인 시스템 스캔
