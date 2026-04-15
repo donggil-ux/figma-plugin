@@ -1059,15 +1059,26 @@ async function randomFillData(category, data) {
     return;
   }
 
-  // 데이터 필드 이름 목록 생성 (대소문자 무시 비교를 위해)
-  // 각 필드별로 현재 인덱스를 관리하여 순서대로 데이터 적용
+  // 이미지 필드와 텍스트 필드 분리
+  const imageFields = data.filter(f => f.isImage && f.imageType);
+  const textData = data.filter(f => !f.isImage);
+
+  // 이미지 필드는 startImageFill로 별도 처리
+  for (const imgField of imageFields) {
+    startImageFill(imgField.imageType, imgField.name, imgField.values || []);
+  }
+
+  // 텍스트 필드 없으면 여기서 종료 (이미지 fill이 자체 status를 보냄)
+  if (textData.length === 0) return;
+
+  // 텍스트 필드만 fieldMap에 포함
   const fieldMap = {};
-  for (const field of data) {
+  for (const field of textData) {
     fieldMap[field.name.toLowerCase()] = {
       name: field.name,
       desc: field.desc,
       values: field.values,
-      currentIndex: 0  // 순서대로 적용을 위한 인덱스
+      currentIndex: 0
     };
   }
 
@@ -1075,27 +1086,31 @@ async function randomFillData(category, data) {
   let matched = 0;
 
   for (const node of selection) {
-    // 선택된 노드와 모든 하위 노드 탐색
     const result = await fillMatchingLayersSequential(node, fieldMap);
     changed += result.changed;
     matched += result.matched;
   }
 
   if (matched === 0) {
-    figma.ui.postMessage({
-      type: 'data-fill-status',
-      status: 'error',
-      message: '일치하는 레이어 이름이 없습니다. 레이어 이름을 데이터 필드명(예: CreatorName, FollowersText)과 동일하게 설정해주세요.'
-    });
+    // 이미지 필드가 있었으면 에러 표시 생략 (이미지 fill 결과로 대체)
+    if (imageFields.length === 0) {
+      figma.ui.postMessage({
+        type: 'data-fill-status',
+        status: 'error',
+        message: '일치하는 레이어 이름이 없습니다. 레이어 이름을 데이터 필드명(예: CreatorName, FollowersText)과 동일하게 설정해주세요.'
+      });
+    }
     return;
   }
 
   if (changed === 0) {
-    figma.ui.postMessage({
-      type: 'data-fill-status',
-      status: 'error',
-      message: '선택된 영역에 텍스트가 없습니다.'
-    });
+    if (imageFields.length === 0) {
+      figma.ui.postMessage({
+        type: 'data-fill-status',
+        status: 'error',
+        message: '선택된 영역에 텍스트가 없습니다.'
+      });
+    }
     return;
   }
 
@@ -1217,8 +1232,10 @@ function findImageNodesByName(selection, fieldName) {
   const nameLower = fieldName.toLowerCase();
 
   function collect(node) {
-    if (node.name.toLowerCase() === nameLower) {
-      // 이름이 일치하고 fills를 가진 비-텍스트 노드
+    const nodeNameLower = node.name.toLowerCase();
+    // 정확히 일치하거나, 필드명을 포함하는 경우도 허용 (예: "Avatar Image 1")
+    if (nodeNameLower === nameLower || nodeNameLower.includes(nameLower)) {
+      // fills를 가진 비-텍스트 노드
       if ('fills' in node && node.type !== 'TEXT') {
         nodes.push(node);
         return; // 자식은 탐색하지 않음
