@@ -1164,10 +1164,12 @@
       <!-- 텍스트 찾기 카드 -->
       <div class="card">
         <h2 class="card-title">텍스트 찾기</h2>
-        <div class="input-group" style="flex-direction:row;gap:6px;">
-          <input type="text" id="findTextInput" placeholder="찾을 텍스트 입력" style="flex:1;">
-          <button class="btn btn-primary" id="findTextBtn" style="white-space:nowrap;">
-            <span class="btn-text">찾기</span>
+        <div class="input-group">
+          <textarea id="findTextInput" placeholder="찾을 텍스트를 입력하세요" rows="2" style="resize:none;"></textarea>
+        </div>
+        <div class="button-group">
+          <button class="btn btn-primary" id="findTextBtn">
+            <span class="btn-text">텍스트 찾기</span>
             <span class="btn-loading"><span class="btn-spinner"></span>검색 중...</span>
           </button>
         </div>
