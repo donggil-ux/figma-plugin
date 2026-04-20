@@ -1073,91 +1073,117 @@ async function randomFillData(category, data) {
     return;
   }
 
-  // 이미지 필드와 텍스트 필드 분리
   const imageFields = data.filter(f => f.isImage && f.imageType);
   const textData = data.filter(f => !f.isImage);
 
-  // 이미지 필드는 startImageFill로 별도 처리
-  for (const imgField of imageFields) {
-    startImageFill(imgField.imageType, imgField.name, imgField.values || []);
+  // 모든 필드 이름 집합 (row 컨테이너 감지용)
+  const allFieldNames = new Set(data.map(f => f.name.toLowerCase()));
+  function hasMatchingField(node) {
+    if (allFieldNames.has((node.name || '').toLowerCase())) return true;
+    if ('children' in node && node.children) {
+      for (const child of node.children) {
+        if (hasMatchingField(child)) return true;
+      }
+    }
+    return false;
   }
 
-  // 텍스트 필드 없으면 여기서 종료 (이미지 fill이 자체 status를 보냄)
-  if (textData.length === 0) return;
+  // Row 컨테이너 결정: 다중 선택이면 그대로 rows / 단일 선택이면
+  // 매칭 필드를 가진 자식이 2개 이상일 때 자식을 rows로 사용
+  let rowContainers = selection.slice();
+  if (selection.length === 1 && 'children' in selection[0] && selection[0].children) {
+    const candidates = selection[0].children.filter(hasMatchingField);
+    if (candidates.length >= 2) rowContainers = candidates;
+  }
 
-  // 텍스트 필드만 fieldMap에 포함
+  // 텍스트 fieldMap (currentIndex 불필요 — rowIdx 사용)
   const fieldMap = {};
   for (const field of textData) {
-    fieldMap[field.name.toLowerCase()] = {
-      name: field.name,
-      desc: field.desc,
-      values: field.values,
-      currentIndex: 0
-    };
+    fieldMap[field.name.toLowerCase()] = field;
   }
 
   let changed = 0;
   let matched = 0;
+  const imageTasks = []; // { nodeId, url }
 
-  for (const node of selection) {
-    const result = await fillMatchingLayersSequential(node, fieldMap);
+  for (let rowIdx = 0; rowIdx < rowContainers.length; rowIdx++) {
+    const rootNode = rowContainers[rowIdx];
+
+    // 텍스트: 이 row의 모든 매칭 필드에 rowIdx 적용
+    const result = await fillTextFieldsByRow(rootNode, fieldMap, rowIdx);
     changed += result.changed;
     matched += result.matched;
+
+    // 이미지: 이 row에서 필드명과 매칭되는 노드에 동일한 rowIdx URL 적용
+    for (const imgField of imageFields) {
+      const imageNodes = findImageNodesByName([rootNode], imgField.name);
+      if (imageNodes.length === 0) continue;
+      const urls = (imgField.values && imgField.values.length > 0)
+        ? imgField.values
+        : [`https://i.pravatar.cc/200?img=${(rowIdx % 70) + 1}`];
+      const url = urls[rowIdx % urls.length];
+      for (const imgNode of imageNodes) {
+        imageTasks.push({ nodeId: imgNode.id, url });
+      }
+    }
   }
 
-  if (matched === 0) {
-    // 이미지 필드가 있었으면 에러 표시 생략 (이미지 fill 결과로 대체)
-    if (imageFields.length === 0) {
-      figma.ui.postMessage({
-        type: 'data-fill-status',
-        status: 'error',
-        message: '일치하는 레이어 이름이 없습니다. 레이어 이름을 데이터 필드명(예: CreatorName, FollowersText)과 동일하게 설정해주세요.'
-      });
+  // 이미지 task 일괄 실행
+  if (imageTasks.length > 0) {
+    pendingImageCount = imageTasks.length;
+    appliedImageCount = 0;
+    for (const task of imageTasks) {
+      figma.ui.postMessage({ type: 'fetch-image', url: task.url, nodeId: task.nodeId });
     }
+  }
+
+  // 텍스트가 없고 이미지도 없으면 에러
+  if (matched === 0 && imageTasks.length === 0) {
+    figma.ui.postMessage({
+      type: 'data-fill-status',
+      status: 'error',
+      message: '일치하는 레이어 이름이 없습니다. 레이어 이름을 데이터 필드명(예: Name, Handle, Avatar Image)과 동일하게 설정해주세요.'
+    });
     return;
   }
 
-  if (changed === 0) {
-    if (imageFields.length === 0) {
-      figma.ui.postMessage({
-        type: 'data-fill-status',
-        status: 'error',
-        message: '선택된 영역에 텍스트가 없습니다.'
-      });
-    }
+  // 텍스트 매칭은 있었는데 실제 변경이 0이면 (이미지만 있는 경우 포함)
+  if (matched > 0 && changed === 0 && imageTasks.length === 0) {
+    figma.ui.postMessage({
+      type: 'data-fill-status',
+      status: 'error',
+      message: '선택된 영역에 텍스트가 없습니다.'
+    });
     return;
   }
 
-  figma.ui.postMessage({
-    type: 'data-fill-status',
-    status: 'success',
-    message: `${matched}개의 일치 레이어에서 ${changed}개의 텍스트에 데이터를 순서대로 적용했습니다.`
-  });
+  // 텍스트가 있으면 텍스트 성공 메시지 전송 (이미지는 applyImageData가 자체 메시지 전송)
+  if (matched > 0 && changed > 0) {
+    figma.ui.postMessage({
+      type: 'data-fill-status',
+      status: 'success',
+      message: `${rowContainers.length}개 row에 ${changed}개 텍스트 적용 완료`
+    });
+  }
 }
 
-// 레이어 이름과 데이터 필드 이름이 일치하는 경우에만 순서대로 데이터 적용
-async function fillMatchingLayersSequential(node, fieldMap) {
+// row 단위 텍스트 적용 - 같은 row의 모든 필드는 같은 rowIdx 사용
+async function fillTextFieldsByRow(node, fieldMap, rowIdx) {
   let changed = 0;
   let matched = 0;
 
-  // 현재 노드의 이름이 필드명과 일치하는지 확인
-  const nodeName = node.name.toLowerCase();
+  const nodeName = (node.name || '').toLowerCase();
   const matchingField = fieldMap[nodeName];
 
   if (matchingField && matchingField.values && matchingField.values.length > 0) {
     matched++;
+    const idx = rowIdx % matchingField.values.length;
+    const value = matchingField.values[idx];
 
-    // 순서대로 값 가져오기 (인덱스가 넘어가면 처음부터 다시)
-    const currentIdx = matchingField.currentIndex % matchingField.values.length;
-    const value = matchingField.values[currentIdx];
-    matchingField.currentIndex++;  // 다음 인덱스로 증가
-
-    // 이 노드가 텍스트이면 직접 변경
     if (node.type === 'TEXT') {
       const success = await changeTextInNode(node, value);
       if (success) changed++;
     } else {
-      // 이 노드 내부의 모든 텍스트 노드 찾아서 변경 (같은 값으로)
       const textNodes = findAllTextNodes(node);
       for (const textNode of textNodes) {
         const success = await changeTextInNode(textNode, value);
@@ -1166,7 +1192,43 @@ async function fillMatchingLayersSequential(node, fieldMap) {
     }
   }
 
-  // 자식 노드들도 재귀적으로 탐색
+  if ('children' in node && node.children) {
+    for (const child of node.children) {
+      const result = await fillTextFieldsByRow(child, fieldMap, rowIdx);
+      changed += result.changed;
+      matched += result.matched;
+    }
+  }
+
+  return { changed, matched };
+}
+
+// (레거시) 필드별 독립 인덱스 방식 — 다른 곳에서 참조될 수 있어 유지
+async function fillMatchingLayersSequential(node, fieldMap) {
+  let changed = 0;
+  let matched = 0;
+
+  const nodeName = node.name.toLowerCase();
+  const matchingField = fieldMap[nodeName];
+
+  if (matchingField && matchingField.values && matchingField.values.length > 0) {
+    matched++;
+    const currentIdx = matchingField.currentIndex % matchingField.values.length;
+    const value = matchingField.values[currentIdx];
+    matchingField.currentIndex++;
+
+    if (node.type === 'TEXT') {
+      const success = await changeTextInNode(node, value);
+      if (success) changed++;
+    } else {
+      const textNodes = findAllTextNodes(node);
+      for (const textNode of textNodes) {
+        const success = await changeTextInNode(textNode, value);
+        if (success) changed++;
+      }
+    }
+  }
+
   if ('children' in node && node.children) {
     for (const child of node.children) {
       const result = await fillMatchingLayersSequential(child, fieldMap);
