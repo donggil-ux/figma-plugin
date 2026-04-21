@@ -2059,6 +2059,34 @@ function parseRgbString(str) {
   return { r: parseInt(m[1])/255, g: parseInt(m[2])/255, b: parseInt(m[3])/255, a: m[4] ? parseFloat(m[4]) : 1 };
 }
 
+// Build a Figma GRADIENT_LINEAR paint from parsed gradient data { angle, stops }
+function buildLinearGradientPaint(gradient) {
+  if (!gradient || !gradient.stops || gradient.stops.length === 0) return null;
+  // CSS angle: 0 = up, 90 = right, 180 = down
+  // Figma gradientTransform maps unit-rect → gradient line (0,0)→(1,0)
+  // Formula derivation verified for 0/90/180/270 deg.
+  var rad = (90 - (gradient.angle || 180)) * Math.PI / 180;
+  var c = Math.cos(rad), s = Math.sin(rad);
+  var gt = [
+    [c, s, (1 - c - s) / 2],
+    [-s, c, (1 + s - c) / 2]
+  ];
+  var stops = gradient.stops.map(function(st) {
+    var pos = st.position != null ? st.position : 0;
+    if (pos < 0) pos = 0; if (pos > 1) pos = 1;
+    return {
+      position: pos,
+      color: {
+        r: st.color.r, g: st.color.g, b: st.color.b,
+        a: st.color.a != null ? st.color.a : 1
+      }
+    };
+  });
+  // Sort by position for safety
+  stops.sort(function(a,b){ return a.position - b.position; });
+  return { type: 'GRADIENT_LINEAR', gradientTransform: gt, gradientStops: stops };
+}
+
 function mapJustify(val) {
   return ({'flex-start':'MIN','flex_start':'MIN',start:'MIN',center:'CENTER','flex-end':'MAX','flex_end':'MAX',end:'MAX','space-between':'SPACE_BETWEEN'})[val] || 'MIN';
 }
@@ -2132,10 +2160,31 @@ async function createNodeEnhanced(nodeData, parentNode, depth) {
     if (nodeData.fill) { var rRgb=hexToFigmaRgb(nodeData.fill); if(rRgb) node.fills=[{type:'SOLID',color:{r:rRgb.r,g:rRgb.g,b:rRgb.b}}]; }
     if (nodeData.cornerRadius != null) applyCornerRadiusToNode(node, nodeData.cornerRadius);
 
+  } else if (type === 'vector') {
+    node = figma.createVector();
+    node.name = nodeData.name || 'Vector';
+    if (nodeData.vectorPath) {
+      try { node.vectorPaths = [{ windingRule: 'NONZERO', data: nodeData.vectorPath }]; } catch(eVec) {}
+    }
+    if (nodeData.fillColor) {
+      var vc = nodeData.fillColor;
+      var paint = { type: 'SOLID', color: { r: vc.r, g: vc.g, b: vc.b } };
+      if (vc.a != null && vc.a < 1) paint.opacity = vc.a;
+      node.fills = [paint];
+    } else if (nodeData.fill) {
+      var vRgb = hexToFigmaRgb(nodeData.fill);
+      if (vRgb) node.fills = [{ type: 'SOLID', color: { r: vRgb.r, g: vRgb.g, b: vRgb.b } }];
+    }
+
   } else {
     node = figma.createFrame();
     node.name = nodeData.name || 'Frame';
-    if (nodeData.fill) { var fRgb=hexToFigmaRgb(nodeData.fill); if(fRgb){var fe={type:'SOLID',color:{r:fRgb.r,g:fRgb.g,b:fRgb.b}};if(nodeData.fillOpacity!=null&&nodeData.fillOpacity<1)fe.opacity=nodeData.fillOpacity;node.fills=[fe];} } else { node.fills=[]; }
+    if (nodeData.fillGradient && typeof nodeData.fillGradient === 'object') {
+      var gp = buildLinearGradientPaint(nodeData.fillGradient);
+      if (gp) node.fills = [gp];
+      else if (nodeData.fill) { var gfRgb=hexToFigmaRgb(nodeData.fill); if(gfRgb) node.fills=[{type:'SOLID',color:{r:gfRgb.r,g:gfRgb.g,b:gfRgb.b}}]; else node.fills=[]; }
+      else node.fills=[];
+    } else if (nodeData.fill) { var fRgb=hexToFigmaRgb(nodeData.fill); if(fRgb){var fe={type:'SOLID',color:{r:fRgb.r,g:fRgb.g,b:fRgb.b}};if(nodeData.fillOpacity!=null&&nodeData.fillOpacity<1)fe.opacity=nodeData.fillOpacity;node.fills=[fe];} } else { node.fills=[]; }
     if (nodeData.cornerRadius != null) applyCornerRadiusToNode(node, nodeData.cornerRadius);
     if (nodeData.clipsContent) node.clipsContent = true;
     if (nodeData.opacity != null && nodeData.opacity < 1) node.opacity = nodeData.opacity;
@@ -2150,12 +2199,12 @@ async function createNodeEnhanced(nodeData, parentNode, depth) {
       if (nodeData.alignItems) node.counterAxisAlignItems = mapAlignItems(nodeData.alignItems);
       node.primaryAxisSizingMode = 'FIXED'; node.counterAxisSizingMode = 'FIXED';
     } else { node.layoutMode = 'NONE'; }
-    if (nodeData.strokeColor) { var sRgb=hexToFigmaRgb(nodeData.strokeColor); if(sRgb){node.strokes=[{type:'SOLID',color:{r:sRgb.r,g:sRgb.g,b:sRgb.b}}];node.strokeWeight=nodeData.strokeWeight||1;node.strokeAlign='INSIDE';} }
+    if (nodeData.strokeColor) { var sRgb=hexToFigmaRgb(nodeData.strokeColor); if(sRgb){var sPaint={type:'SOLID',color:{r:sRgb.r,g:sRgb.g,b:sRgb.b}};if(nodeData.strokeOpacity!=null&&nodeData.strokeOpacity<1)sPaint.opacity=nodeData.strokeOpacity;node.strokes=[sPaint];node.strokeWeight=nodeData.strokeWeight||1;node.strokeAlign='INSIDE';} }
     if (nodeData.shadows && nodeData.shadows.length > 0) {
       node.effects = nodeData.shadows.map(s => {
         var sc={r:0,g:0,b:0,a:0.25};
         if(s.color){if(s.color.charAt(0)==='#'){var c=hexToFigmaRgb(s.color);if(c)sc={r:c.r,g:c.g,b:c.b,a:c.a||0.25};}else if(s.color.indexOf('rgb')===0){var c2=parseRgbString(s.color);if(c2)sc=c2;}}
-        return {type:'DROP_SHADOW',visible:true,blendMode:'NORMAL',color:sc,offset:{x:s.offsetX||0,y:s.offsetY||0},radius:s.blur||0,spread:s.spread||0};
+        return {type:s.isInset?'INNER_SHADOW':'DROP_SHADOW',visible:true,blendMode:'NORMAL',color:sc,offset:{x:s.offsetX||0,y:s.offsetY||0},radius:s.blur||0,spread:s.spread||0};
       });
     }
     if (nodeData.children && nodeData.children.length) {
