@@ -1062,12 +1062,12 @@
 
         <!-- 파일 업로드 모드 -->
         <div id="c2d-file-mode" style="display:none;">
-          <input type="file" id="htmlFileInput" accept=".html,.htm,.css,.js,.jsx,.tsx,.vue,.svg" style="display:none;" onchange="handleFileUpload(this)" />
+          <input type="file" id="htmlFileInput" accept=".html,.htm,.css,.js,.jsx,.tsx,.vue,.svg" multiple style="display:none;" onchange="handleFileUpload(this)" />
           <label for="htmlFileInput" class="file-drop-zone" id="fileUploadArea">
             <div class="file-drop-zone-icon" id="fileDropIcon">☁️</div>
             <div id="fileDropDefault">
-              <div class="file-drop-zone-title">클릭하거나 파일을 드래그하세요</div>
-              <div class="file-drop-zone-sub">.html · .css · .js · .jsx · .tsx · .vue · .svg</div>
+              <div class="file-drop-zone-title">클릭하거나 파일을 드래그하세요 (여러 개 선택 가능)</div>
+              <div class="file-drop-zone-sub">.html · .css · .js · .jsx · .tsx · .vue · .svg · 여러 HTML 선택 시 가로로 일괄 생성</div>
             </div>
             <div class="file-drop-zone-name" id="fileUploadName" style="display:none;">
               <span id="fileNameText"></span>
@@ -2525,29 +2525,73 @@
     }
 
     // ===== HTML 파일 업로드 =====
+    // 단일 파일: codeInput 에 내용 로드 (기존 동작)
+    // 여러 파일: window._c2dBatchFiles 에 [{name, content}, ...] 저장 → 배치 생성 플로우
+    window._c2dBatchFiles = null;
+
     function handleFileUpload(input) {
-      var file = input && input.files && input.files[0];
-      if (!file) return;
-      var reader = new FileReader();
-      reader.onload = function(e) {
-        document.getElementById('codeInput').value = e.target.result;
-        document.getElementById('fileDropIcon').textContent = '✅';
+      var files = input && input.files;
+      if (!files || files.length === 0) return;
+      if (files.length === 1) {
+        window._c2dBatchFiles = null;
+        var file = files[0];
+        var reader = new FileReader();
+        reader.onload = function(e) {
+          document.getElementById('codeInput').value = e.target.result;
+          document.getElementById('fileDropIcon').textContent = '✅';
+          document.getElementById('fileDropDefault').style.display = 'none';
+          document.getElementById('fileUploadName').style.display = 'flex';
+          document.getElementById('fileNameText').textContent = file.name;
+          document.getElementById('fileUploadArea').style.borderColor = '#6366F1';
+          document.getElementById('fileUploadArea').style.background = '#F0F0FF';
+        };
+        reader.onerror = function() {
+          document.getElementById('fileDropIcon').textContent = '❌';
+          document.getElementById('fileDropDefault').querySelector('.file-drop-zone-title').textContent = '파일을 읽을 수 없습니다';
+          document.getElementById('fileUploadArea').style.borderColor = '#ef4444';
+        };
+        reader.readAsText(file, 'UTF-8');
+        return;
+      }
+
+      // 여러 파일: 모든 내용 읽고 배치에 저장
+      var results = [];
+      var pending = files.length;
+      var hasError = false;
+      for (var i = 0; i < files.length; i++) {
+        (function(idx, f) {
+          var r = new FileReader();
+          r.onload = function(e) {
+            results[idx] = { name: f.name, content: e.target.result };
+            if (--pending === 0 && !hasError) finalizeBatch(results);
+          };
+          r.onerror = function() {
+            hasError = true;
+            document.getElementById('fileDropIcon').textContent = '❌';
+            document.getElementById('fileDropDefault').querySelector('.file-drop-zone-title').textContent = '"'+f.name+'" 읽기 실패';
+            document.getElementById('fileUploadArea').style.borderColor = '#ef4444';
+          };
+          r.readAsText(f, 'UTF-8');
+        })(i, files[i]);
+      }
+
+      function finalizeBatch(list) {
+        // 파일명 알파벳순 정렬 (01-cover.html < 02-background.html ... 순서 보장)
+        list.sort(function(a,b){ return a.name.localeCompare(b.name); });
+        window._c2dBatchFiles = list;
+        document.getElementById('codeInput').value = '';
+        document.getElementById('fileDropIcon').textContent = '📦';
         document.getElementById('fileDropDefault').style.display = 'none';
         document.getElementById('fileUploadName').style.display = 'flex';
-        document.getElementById('fileNameText').textContent = file.name;
+        document.getElementById('fileNameText').textContent = list.length + '개 파일 선택됨 · ' + list.map(function(f){return f.name;}).slice(0,3).join(', ') + (list.length>3?' …':'');
         document.getElementById('fileUploadArea').style.borderColor = '#6366F1';
         document.getElementById('fileUploadArea').style.background = '#F0F0FF';
-      };
-      reader.onerror = function() {
-        document.getElementById('fileDropIcon').textContent = '❌';
-        document.getElementById('fileDropDefault').querySelector('.file-drop-zone-title').textContent = '파일을 읽을 수 없습니다';
-        document.getElementById('fileUploadArea').style.borderColor = '#ef4444';
-      };
-      reader.readAsText(file, 'UTF-8');
+      }
     }
 
     function clearUploadedFile(e) {
       if (e) e.stopPropagation();
+      window._c2dBatchFiles = null;
       document.getElementById('codeInput').value = '';
       document.getElementById('fileUploadName').style.display = 'none';
       document.getElementById('fileDropDefault').style.display = 'block';
@@ -2565,11 +2609,10 @@
       _dropArea.addEventListener('dragleave', function() { _dropArea.classList.remove('drag-over'); });
       _dropArea.addEventListener('drop', function(e) {
         e.preventDefault(); _dropArea.classList.remove('drag-over');
-        var file = e.dataTransfer.files[0];
-        if (!file) return;
+        var files = e.dataTransfer.files;
+        if (!files || files.length === 0) return;
         switchC2DMode('file');
-        var fakeInput = { files: [file] };
-        handleFileUpload(fakeInput);
+        handleFileUpload({ files: files });
       });
     }
 
@@ -3101,7 +3144,107 @@
 
     var _c2dGenId = 0; // generation counter to prevent stale timeout race conditions
 
+    // 여러 파일을 한 번에 렌더링 → 하나의 Figma 캔버스에 가로 배치
+    function runBatchGenerate() {
+      var files = window._c2dBatchFiles || [];
+      if (files.length === 0) return;
+      var btn = document.getElementById('generateDesignBtn');
+      if (btn) btn.classList.add('loading');
+      var genId = ++_c2dGenId;
+
+      var designTrees = [];
+      var idx = 0;
+      function next() {
+        if (genId !== _c2dGenId) {
+          if (btn) btn.classList.remove('loading');
+          return; // stale
+        }
+        if (idx >= files.length) {
+          if (designTrees.length === 0) {
+            if (btn) btn.classList.remove('loading');
+            showCode2DesignStatus('모든 파일 처리 실패','error');
+            return;
+          }
+          showCode2DesignStatus('Figma 프레임 ' + designTrees.length + '개 생성 중...', 'info');
+          parent.postMessage({
+            pluginMessage: { type: 'generate-from-browser-render-batch', slides: designTrees }
+          }, '*');
+          return;
+        }
+        var file = files[idx];
+        showCode2DesignStatus('렌더링 중... (' + (idx+1) + ' / ' + files.length + '): ' + file.name, 'info');
+        renderAndCaptureOnce(file.content, file.name.replace(/\.(html|htm)$/i,''))
+          .then(function(tree) { if (tree) designTrees.push(tree); idx++; next(); })
+          .catch(function(err) {
+            showCode2DesignStatus('"'+file.name+'" 처리 실패: ' + (err && err.message ? err.message : err), 'error');
+            idx++; setTimeout(next, 100);
+          });
+      }
+      next();
+    }
+
+    // Promise-based 단일 파일 렌더 + traverseDOM (배치에서 순차 호출)
+    function renderAndCaptureOnce(rawCode, sheetName) {
+      return new Promise(function(resolve, reject) {
+        var code = stripCodeFences((rawCode||'').trim());
+        var codeType = detectCodeType(code);
+        if (codeType === 'json' || codeType === 'figma-script') {
+          return reject(new Error('배치 모드는 HTML/Tailwind만 지원 (' + codeType + ' 감지됨)'));
+        }
+        var srcdoc;
+        try {
+          srcdoc = (codeType === 'tailwind') ? buildSrcdocTailwind(code) : buildSrcdocHTML(code);
+        } catch(eBuild) { return reject(eBuild); }
+
+        var iframe = document.getElementById('renderFrame');
+        var done = false;
+        var timeout = setTimeout(function() {
+          if (done) return; done = true;
+          window.removeEventListener('message', readyHandler);
+          reject(new Error('렌더 타임아웃 (15초)'));
+        }, 15000);
+
+        var readyHandler = function(e) {
+          if (done) return;
+          if (e.data && e.data.c2dReady && e.source === iframe.contentWindow) {
+            done = true;
+            clearTimeout(timeout);
+            window.removeEventListener('message', readyHandler);
+            try {
+              var doc = iframe.contentDocument || iframe.contentWindow.document;
+              var body = doc.body, docEl = doc.documentElement, win = iframe.contentWindow;
+              var bgColor = rgbStringToHex(win.getComputedStyle(body).backgroundColor);
+              var docWidth = Math.max(docEl.scrollWidth, body.scrollWidth, 1440);
+              var docHeight = Math.max(docEl.scrollHeight, body.scrollHeight, 100);
+              var designTree = {
+                name: sheetName || 'Slide',
+                width: docWidth, height: docHeight,
+                backgroundColor: (bgColor === '#000000' && win.getComputedStyle(body).backgroundColor === 'rgba(0, 0, 0, 0)') ? '#FFFFFF' : bgColor,
+                elements: []
+              };
+              for (var i = 0; i < body.children.length; i++) {
+                var nodeJSON = traverseDOM(body.children[i], win, 0);
+                if (nodeJSON) {
+                  var childRect = body.children[i].getBoundingClientRect();
+                  nodeJSON.x = Math.round(childRect.left); nodeJSON.y = Math.round(childRect.top);
+                  designTree.elements.push(nodeJSON);
+                }
+              }
+              if (designTree.elements.length === 0) return reject(new Error('렌더링된 요소 없음'));
+              resolve(designTree);
+            } catch(eCap) { reject(eCap); }
+          }
+        };
+        window.addEventListener('message', readyHandler);
+        iframe.srcdoc = srcdoc;
+      });
+    }
+
     function generateDesign() {
+      // 배치 모드: 여러 파일이 업로드되어 있으면 우선 처리
+      if (window._c2dBatchFiles && window._c2dBatchFiles.length > 0) {
+        return runBatchGenerate();
+      }
       var btn=document.getElementById('generateDesignBtn');
       var code=(document.getElementById('codeInput')||{}).value;
       if (!code||!code.trim()) { showCode2DesignStatus('코드를 입력해주세요','error'); return; }

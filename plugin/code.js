@@ -215,6 +215,11 @@ figma.ui.onmessage = async (msg) => {
     createDesignFromBrowserRender(msg.designTree);
   }
 
+  // Code2Design: 여러 HTML 파일 일괄 변환 → Figma 가로 배치
+  if (msg.type === 'generate-from-browser-render-batch') {
+    createDesignFromBrowserRenderBatch(msg.slides || []);
+  }
+
   // Code2Design: Figma 플러그인 스크립트 직접 실행
   if (msg.type === 'execute-figma-script') {
     try {
@@ -2261,6 +2266,88 @@ async function createDesignFromBrowserRender(data) {
     figma.ui.postMessage({type:'code2design-status',status:'success',message:'디자인이 생성되었습니다! ('+nodeCount+'개 요소)'});
   } catch(e) {
     figma.ui.postMessage({type:'code2design-status',status:'error',message:'디자인 생성 실패: '+e.message});
+  }
+}
+
+// 여러 슬라이드를 순차 생성하여 가로 한 줄로 배치 (간격 100px)
+// 동일 Y 좌표, 슬라이드별 X 누적. 현재 viewport 중앙을 기준으로 배치.
+async function createDesignFromBrowserRenderBatch(slides) {
+  if (!slides || slides.length === 0) {
+    figma.ui.postMessage({type:'code2design-status',status:'error',message:'생성할 슬라이드가 없습니다'});
+    return;
+  }
+  figma.ui.postMessage({type:'code2design-status',status:'info',message:slides.length+'개 슬라이드 생성 중...'});
+  try {
+    // 모든 슬라이드에 필요한 폰트 일괄 로드
+    var allFonts = [];
+    var fontKey = {};
+    for (var i = 0; i < slides.length; i++) {
+      var fs = collectFontsFromTree(slides[i]);
+      for (var j = 0; j < fs.length; j++) {
+        var k = fs[j].family + '|' + fs[j].style;
+        if (!fontKey[k]) { fontKey[k] = true; allFonts.push(fs[j]); }
+      }
+    }
+    for (var f = 0; f < allFonts.length; f++) {
+      try { await figma.loadFontAsync(allFonts[f]); } catch(eF) {
+        try { await figma.loadFontAsync({family:'Inter',style:allFonts[f].style}); } catch(eF2) {}
+      }
+    }
+    await figma.loadFontAsync({family:'Inter',style:'Regular'});
+
+    // 배치 컨테이너: 섹션 Frame (투명 배경, auto-layout 없음)
+    var sectionFrame = figma.createFrame();
+    sectionFrame.name = 'Batch Import (' + slides.length + '개 슬라이드)';
+    sectionFrame.fills = [];
+    sectionFrame.clipsContent = false;
+
+    var GAP = 100;
+    var cursorX = 0;
+    var maxHeight = 0;
+    var created = 0;
+
+    for (var s = 0; s < slides.length; s++) {
+      var data = slides[s];
+      try {
+        var mainFrame = figma.createFrame();
+        mainFrame.name = data.name || ('Slide ' + (s+1));
+        var w = data.width || 1440, h = data.height || 900;
+        mainFrame.resize(w, h);
+        if (data.backgroundColor) {
+          var bgRgb = hexToFigmaRgb(data.backgroundColor);
+          if (bgRgb) mainFrame.fills = [{type:'SOLID',color:{r:bgRgb.r,g:bgRgb.g,b:bgRgb.b}}];
+        } else {
+          mainFrame.fills = [{type:'SOLID',color:{r:1,g:1,b:1}}];
+        }
+        if (data.elements && data.elements.length) {
+          for (var e = 0; e < data.elements.length; e++) {
+            try { await createNodeEnhanced(data.elements[e], mainFrame, 0); } catch(eN) {}
+          }
+        }
+        sectionFrame.appendChild(mainFrame);
+        mainFrame.x = cursorX; mainFrame.y = 0;
+        cursorX += w + GAP;
+        if (h > maxHeight) maxHeight = h;
+        created++;
+        figma.ui.postMessage({
+          type:'code2design-status', status:'info',
+          message:'슬라이드 '+(s+1)+' / '+slides.length+' 완료 ('+mainFrame.name+')'
+        });
+      } catch(eS) {
+        // 한 슬라이드 실패해도 다음 진행
+      }
+    }
+
+    sectionFrame.resize(Math.max(cursorX - GAP, 100), Math.max(maxHeight, 100));
+    figma.currentPage.appendChild(sectionFrame);
+    figma.currentPage.selection = [sectionFrame];
+    figma.viewport.scrollAndZoomIntoView([sectionFrame]);
+    figma.ui.postMessage({
+      type:'code2design-status', status:'success',
+      message:'배치 생성 완료! ' + created + ' / ' + slides.length + '개 슬라이드'
+    });
+  } catch(e) {
+    figma.ui.postMessage({type:'code2design-status',status:'error',message:'배치 생성 실패: '+e.message});
   }
 }
 
