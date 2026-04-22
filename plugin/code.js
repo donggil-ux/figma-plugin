@@ -796,25 +796,13 @@ function renameSelectedLayers(namingType) {
 
   let renamed = 0;
 
-  function renameRecursive(node) {
+  for (const node of selection) {
     // Component, Instance는 변경하지 않음
     if (node.type === 'COMPONENT' || node.type === 'INSTANCE' || node.type === 'COMPONENT_SET') {
-      return;
+      continue;
     }
-
     node.name = namingType;
     renamed++;
-
-    // 자식 노드도 재귀적으로 처리
-    if ('children' in node && node.children) {
-      for (const child of node.children) {
-        renameRecursive(child);
-      }
-    }
-  }
-
-  for (const node of selection) {
-    renameRecursive(node);
   }
 
   figma.ui.postMessage({
